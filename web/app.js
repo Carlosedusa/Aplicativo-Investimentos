@@ -143,6 +143,7 @@ function scannerView() {
       h("div", { class: "row" }, h("span", null, "Stop"), h("span", { class: "num loss" }, money(p.stop))),
       h("div", { class: "row" }, h("span", null, "Alvo"), h("span", { class: "num gain" }, money(p.target))),
       h("div", { class: "row" }, h("span", null, "Chance de chegar ao alvo"), h("strong", { class: "num" }, Math.round(o.p_target * 100) + "% · " + (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R esperado")),
+      newsCard(x.symbol, true),
       h("button", { onclick: () => selectSymbol(x.symbol) }, "Ver plano e comprar " + x.symbol));
   };
   const show = () => {
@@ -303,6 +304,28 @@ function chartCard(symbol, levels, title, interval = "5m") {
   return box;
 }
 
+// Notícias e sentimento (Alpha Vantage). Só aparece se o servidor tiver a chave ALPHAVANTAGE_API_KEY.
+function newsCard(symbol, compact) {
+  const box = h("div", { class: "stack" });
+  api("/swing/news/" + symbol).then((n) => {
+    if (!n.available) return;
+    const neg = n.label === "negativo";
+    const chip = h("span", { class: "badge " + (n.label === "positivo" ? "buy" : "no") }, "Notícias: " + (n.label || "—"));
+    if (n.error || !n.items.length) {
+      box.replaceChildren(h("p", { class: "muted small" }, n.error || "Sem notícias recentes na Alpha Vantage para " + symbol + "."));
+      return;
+    }
+    box.replaceChildren(
+      h("div", { class: "card stack" }, h("h2", null, "Notícias e sentimento"), h("div", null, chip),
+        neg ? h("p", { class: "loss" }, "Notícias recentes negativas: considere esperar antes de comprar.") : null,
+        ...(compact ? [] : [h("ul", { class: "plain" }, n.items.slice(0, 5).map((i) => h("li", null,
+          h("a", { href: i.url || "#", target: "_blank", rel: "noopener" }, i.title),
+          h("p", { class: "muted small" }, `${i.source} · ${i.time} · ${i.label} (${String(i.score).replace(".", ",")})`))))]),
+        h("p", { class: "muted small" }, "Fonte: Alpha Vantage. Sentimento automático; não é previsão.")));
+  }).catch(() => { /* sem notícias: o resto da tela segue normal */ });
+  return box;
+}
+
 // ---------- ativo
 function assetView() {
   if (!state.symbol) return emptyView("Escolha uma ação", "Rode o Scanner e toque em uma ação da lista.");
@@ -329,6 +352,7 @@ function assetView() {
         h("div", { class: "row" }, h("span", null, `Nenhum dos dois em ${o.horizon_days} pregões`), h("span", { class: "num" }, Math.round(o.p_time * 100) + "%")),
         h("div", { class: "row" }, h("span", null, "Retorno esperado"), h("span", { class: "num " + (o.avg_r >= 0 ? "gain" : "loss") }, (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R")),
         h("p", { class: "muted small" }, `Para a conta compensar com alvo de ${fmt(p.target_r)}R, a chance precisa passar de ${Math.round(o.breakeven * 100)}%. Simulação com ${o.replays} caminhos; não é previsão: balanços e notícias podem mudar tudo.`)),
+      newsCard(state.symbol, false),
       p && h("button", { onclick: () => go("ticket") }, "Montar ordem de teste"));
   };
   (async () => {

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings
 from .engine import EngineError, run_tool
 from .odds import real_odds
+from .swing.news import AlphaNews
 from .routes_swing import build_router as swing_router
 from .swing.source import YahooDailySource
 from .routes_analysis import build_router as analysis_router
@@ -42,6 +43,7 @@ def create_app(settings: Settings | None = None, feed=None, clock=None) -> FastA
     app.state.broker, app.state.monitor = broker, monitor
     app.state.settings = settings
     app.state.tasks = TaskManager()
+    app.state.news = AlphaNews(settings.alphavantage_key)
     app.state.odds = real_odds
     app.state.swing_source = YahooDailySource()
 

@@ -135,3 +135,14 @@ test("chart zooms and pans", async () => {
   const after = await svg.locator("rect.body").first().getAttribute("x");
   assert.notEqual(before, after, "arrastar move o gráfico");
 });
+
+test("news and sentiment appear when the server has the Alpha Vantage key", async () => {
+  const page = await newPage();
+  await login(page);
+  await page.route("**/swing/news/*", (route) => route.fulfill({ json: { available: true, ticker: "X", label: "negativo", avg_score: -0.3,
+    items: [{ title: "Notícia ruim", source: "Fonte", url: "http://x", time: "09/11 10:00", score: -0.3, label: "negativo" }] } }));
+  await scan(page);
+  await page.locator("button.hit").first().click();
+  await page.getByText("Notícias recentes negativas").waitFor();
+  await page.getByText("Notícia ruim").waitFor();
+});

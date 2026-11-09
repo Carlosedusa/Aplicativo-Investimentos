@@ -93,6 +93,12 @@ def build_router(require_token) -> APIRouter:
             raise HTTPException(404, "Poucos dados de %s para analisar." % sym)
         return a
 
+    @r.get("/swing/news/{symbol}")
+    def news(symbol: str, request: Request):
+        if not re.match(SYMBOL, symbol):
+            raise HTTPException(422, "Ticker inválido (ex.: PETR4).")
+        return request.app.state.news.get(symbol.upper())
+
     @r.get("/swing/asset/{symbol}")
     def asset(symbol: str, request: Request):
         return analysis(request, symbol)

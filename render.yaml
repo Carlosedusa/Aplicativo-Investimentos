@@ -10,5 +10,7 @@ services:
         generateValue: true
       - key: SEC_USER_AGENT
         value: "Day Trader teste contato@example.com"
+      - key: ALPHAVANTAGE_API_KEY   # opcional: cole a chave no painel do Render
+        sync: false
       - key: STARTING_CASH
         value: "5000"
