@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: daytrader
+    runtime: docker
+    plan: free
+    branch: claude/blissful-ptolemy-heqax9
+    healthCheckPath: /health
+    envVars:
+      - key: API_TOKEN
+        generateValue: true
+      - key: SEC_USER_AGENT
+        value: "Day Trader teste contato@example.com"
+      - key: STARTING_CASH
+        value: "5000"

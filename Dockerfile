@@ -10,4 +10,4 @@ ENV WORKDIR=/data
 VOLUME /data
 EXPOSE 8000
 # Defina API_TOKEN (obrigatório) e, se quiser, SEC_USER_AGENT e STARTING_CASH.
-CMD ["python", "-m", "uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "python -m uvicorn app.asgi:app --host 0.0.0.0 --port ${PORT:-8000}"]
