@@ -75,3 +75,6 @@ button.mini { min-height: 36px; padding: 6px 12px; font-size: 14px; }
 .small { font-size: 12px; }
 .hit .full { grid-column: 1 / -1; margin-top: 4px; font-size: 14px; font-weight: 600; }
 .hit .chance { font-weight: 700; }
+.chart .ma { fill: none; stroke-width: 1.4; } .chart .ma20 { stroke: #2f6fed; } .chart .ma50 { stroke: #d98a00; }
+.chart .lr, .chart .lsu { stroke: var(--muted); fill: var(--muted); stroke-dasharray: 2 3; stroke-width: 1; }
+.chart text.lr, .chart text.lsu { stroke: none; }

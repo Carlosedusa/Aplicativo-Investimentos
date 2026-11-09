@@ -1,14 +1,25 @@
-"""Swing trade em ações: sinais em barras diárias, plano por volatilidade (ATR) e chance de chegar ao alvo.
+"""Swing trade em ações: tendência por médias móveis, suportes/resistências e stop em pivôs.
 
+Estratégia (compra, alguns dias a poucas semanas):
+  * Tendência de alta: preço acima da média de 50, média de 20 acima da de 50 e a de 50 subindo.
+  * Entradas: pullback na média de 20, repique no suporte (pivô de baixa) ou rompimento da resistência (pivô de alta).
+  * Stop logo abaixo do último pivô de baixa; alvo na próxima resistência (pivô de alta) ou, sem ela, em 3R.
 Chance = simulação (bootstrap) com as variações diárias do próprio ativo no último ano. Não é previsão."""
 import random
 
-HORIZON = 10          # pregões
-STOP_ATR = 1.5        # stop a 1,5 ATR abaixo da entrada
-TARGET_R = 2.0        # alvo = 2 x o risco
+HORIZON = 15          # pregões (~3 semanas)
+PIVOT_N = 3           # um pivô precisa de 3 candles de cada lado
+STOP_BUFFER_ATR = 0.25
+MIN_RISK_ATR, MAX_RISK_ATR = 1.0, 3.5
+MIN_TARGET_R, FALLBACK_R = 1.5, 3.0
 REPLAYS = 2000
-MIN_BARS = 60
+MIN_BARS = 80
 MIN_TURNOVER = 2_000_000.0   # R$ negociados por dia (média de 20 pregões)
+
+
+def sma(c: list[float], n: int, back: int = 0) -> float:
+    end = len(c) - back
+    return sum(c[end - n:end]) / n
 
 
 def rsi(closes: list[float], n: int = 14) -> float | None:
@@ -30,37 +41,77 @@ def atr(bars: list[dict], n: int = 14) -> float:
     return sum(trs[-n:]) / min(n, len(trs))
 
 
-def setups(c: list[float]) -> list[str]:
-    last, hi20 = c[-1], max(c[-21:-1])
-    ma20, ma20_prev = sum(c[-20:]) / 20, sum(c[-21:-1]) / 20
+def pivots(bars: list[dict], n: int = PIVOT_N) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
+    """(pivôs de alta, pivôs de baixa) confirmados: máxima/mínima maior/menor que as n velas de cada lado."""
+    highs, lows = [], []
+    for i in range(n, len(bars) - n):
+        win = bars[i - n:i + n + 1]
+        if bars[i]["h"] == max(b["h"] for b in win) and sum(1 for b in win if b["h"] == bars[i]["h"]) == 1:
+            highs.append((i, bars[i]["h"]))
+        if bars[i]["l"] == min(b["l"] for b in win) and sum(1 for b in win if b["l"] == bars[i]["l"]) == 1:
+            lows.append((i, bars[i]["l"]))
+    return highs, lows
+
+
+def trend(c: list[float]) -> dict:
+    s20, s50, s50_prev = sma(c, 20), sma(c, 50), sma(c, 50, 5)
+    return {"up": c[-1] > s50 and s20 > s50 and s50 > s50_prev, "sma20": round(s20, 2), "sma50": round(s50, 2)}
+
+
+def levels(bars: list[dict], price: float) -> dict:
+    """Suporte (pivô de baixa mais recente abaixo do preço) e resistências (pivôs de alta acima), da mais próxima."""
+    highs, lows = pivots(bars)
+    sup = [v for _, v in reversed(lows) if v < price]
+    res = sorted({v for _, v in highs if v > price * 1.002})
+    return {"support": sup[0] if sup else None, "resistances": res, "last_pivot_high": highs[-1][1] if highs else None}
+
+
+def setups(bars: list[dict], t: dict, lv: dict, a: float) -> list[str]:
+    if not t["up"]:
+        return []
+    c, last = [b["c"] for b in bars], bars[-1]
     out = []
-    if last > hi20:
-        out.append("breakout_20d")
-    if c[-6] / c[-16] - 1 > 0.08 and (max(c[-5:]) - min(c[-5:])) / last < 0.05:
-        out.append("bull_flag")
-    if c[-2] < ma20_prev and last > ma20:
-        out.append("reclaim_ma20")
-    r_prev = rsi(c[:-1])
-    if r_prev is not None and r_prev < 30 and last > c[-2]:
-        out.append("oversold_bounce")
+    ph = lv["last_pivot_high"]
+    if ph and c[-1] > ph and min(c[-4:-1]) <= ph:       # acabou de furar a resistência
+        out.append("breakout_resistance")
+    if last["l"] <= t["sma20"] * 1.01 and c[-1] > t["sma20"] and c[-1] > last["o"]:
+        out.append("pullback_ma20")
+    sup = lv["support"]
+    if sup and last["l"] <= sup + 0.5 * a and c[-1] > last["o"] and c[-1] > sup:
+        out.append("support_bounce")
     return out
 
 
-def plan_for(price: float, a: float) -> dict | None:
-    risk = STOP_ATR * a
-    if risk <= 0 or risk >= price:
-        return None
-    stop, target = price - risk, price + TARGET_R * risk
+def plan_for(price: float, a: float, lv: dict) -> dict | None:
+    sup = lv["support"]
+    if sup:
+        stop, stop_basis = sup - STOP_BUFFER_ATR * a, "pivô de baixa"
+    else:
+        stop, stop_basis = price - 2 * a, "2 ATR (sem pivô)"
+    risk = price - stop
+    if risk < MIN_RISK_ATR * a:
+        stop, stop_basis = price - MIN_RISK_ATR * a, "mínimo de 1 ATR"
+        risk = price - stop
+    if risk > MAX_RISK_ATR * a or risk <= 0 or risk >= price:
+        return None  # pivô de baixa muito longe: risco alto demais para o ganho
+    target, target_basis = price + FALLBACK_R * risk, "projeção de %dR" % FALLBACK_R
+    for r in lv["resistances"]:
+        if (r - price) / risk >= MIN_TARGET_R:
+            target, target_basis = r, "próxima resistência"
+            break
+    rr = (target - price) / risk
     return {"entry": round(price, 2), "stop": round(stop, 2), "target": round(target, 2), "risk": round(risk, 2),
-            "risk_pct": round(100 * risk / price, 2), "target_pct": round(100 * TARGET_R * risk / price, 2),
-            "target_r": TARGET_R, "horizon_days": HORIZON}
+            "risk_pct": round(100 * risk / price, 2), "target_pct": round(100 * (target - price) / price, 2),
+            "target_r": round(rr, 2), "stop_basis": stop_basis, "target_basis": target_basis,
+            "support": sup and round(sup, 2), "resistance": lv["resistances"][0] if lv["resistances"] else None,
+            "horizon_days": HORIZON}
 
 
 def simulate(bars: list[dict], entry: float, stop: float, target: float, replays: int = REPLAYS, seed: int = 19) -> dict:
     """Caminhos de até HORIZON pregões a partir da entrada, sorteando dias do último ano do ativo.
     Dia que abre abaixo do stop (gap) conta como stop; stop é checado antes do alvo no mesmo dia."""
     pool = [(b["o"] / p["c"], b["h"] / p["c"], b["l"] / p["c"], b["c"] / p["c"]) for p, b in zip(bars[-251:], bars[-250:])]
-    risk = entry - stop
+    risk, rr = entry - stop, (target - entry) / (entry - stop)
     rng = random.Random(seed)
     cnt = {"target": 0, "stop": 0, "time": 0}
     sum_r = 0.0
@@ -74,28 +125,31 @@ def simulate(bars: list[dict], entry: float, stop: float, target: float, replays
                 outcome = "target"; break
             p *= c
         cnt[outcome] += 1
-        sum_r += TARGET_R if outcome == "target" else -1.0 if outcome == "stop" else (p - entry) / risk
+        sum_r += rr if outcome == "target" else -1.0 if outcome == "stop" else (p - entry) / risk
     return {"p_target": round(cnt["target"] / replays, 4), "p_stop": round(cnt["stop"] / replays, 4),
             "p_time": round(cnt["time"] / replays, 4), "avg_r": round(sum_r / replays, 3),
-            "breakeven": round(1 / (1 + TARGET_R), 4), "replays": replays, "horizon_days": HORIZON}
+            "breakeven": round(1 / (1 + rr), 4), "replays": replays, "horizon_days": HORIZON}
 
 
 def analyze(symbol: str, bars: list[dict], replays: int = REPLAYS, need_setup: bool = False) -> dict | None:
-    """Análise de um ativo. need_setup=True devolve None se não houver nenhum sinal (uso da varredura)."""
+    """Análise de um ativo. need_setup=True devolve None se não houver sinal de compra (uso da varredura)."""
     if len(bars) < MIN_BARS:
         return None
     c = [b["c"] for b in bars]
-    tags = setups(c)
-    if need_setup and not tags:
-        return None
-    turnover = sum(b["c"] * b.get("v", 0) for b in bars[-20:]) / 20
-    if need_setup and turnover < MIN_TURNOVER:
-        return None
     price, a = c[-1], atr(bars)
-    plan = plan_for(price, a)
-    out = {"symbol": symbol, "price": round(price, 2), "setups": tags, "rsi": round(rsi(c) or 0, 1),
-           "atr": round(a, 2), "turnover": round(turnover), "plan": plan, "odds": None,
-           "last_bar": bars[-1]["t"]}
+    t = trend(c)
+    lv = levels(bars, price)
+    tags = setups(bars, t, lv, a)
+    turnover = sum(b["c"] * b.get("v", 0) for b in bars[-20:]) / 20
+    if need_setup and (not tags or turnover < MIN_TURNOVER):
+        return None
+    plan = plan_for(price, a, lv)
+    if need_setup and not plan:
+        return None
+    out = {"symbol": symbol, "price": round(price, 2), "setups": tags, "trend": t, "rsi": round(rsi(c) or 0, 1),
+           "atr": round(a, 2), "turnover": round(turnover), "plan": plan, "odds": None, "last_bar": bars[-1]["t"],
+           "support": lv["support"] and round(lv["support"], 2),
+           "resistance": lv["resistances"][0] if lv["resistances"] else None}
     if plan:
         out["odds"] = simulate(bars, plan["entry"], plan["stop"], plan["target"], replays)
     return out

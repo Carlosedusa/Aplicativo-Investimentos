@@ -39,24 +39,27 @@ class FakeRunner:
 
 
 def demo_bars(symbol: str, n: int = 260) -> list[dict]:
-    """Barras diárias de demonstração, estáveis por ticker (sem rede). Termina num rompimento de 20 dias."""
+    """Barras diárias de demonstração, estáveis por ticker (sem rede): tendência de alta e um pullback na média de 20."""
     import random
     from datetime import datetime, timedelta, timezone
     rng = random.Random(sum(map(ord, symbol)))
     p = 10 + rng.random() * 40
     day = datetime(2026, 11, 6, 13, 0, tzinfo=timezone.utc) - timedelta(days=n * 7 // 5 + 2)
     out = []
-    while len(out) < n:
+    while len(out) < n - 1:
         day += timedelta(days=1)
         if day.weekday() >= 5:
             continue
-        o = p * (1 + rng.gauss(0, 0.004)); c = o * (1 + rng.gauss(0.0005, 0.015))
+        o = p * (1 + rng.gauss(0, 0.004)); c = o * (1 + rng.gauss(0.004, 0.012))
         out.append({"t": int(day.timestamp()), "o": o, "h": max(o, c) * (1 + abs(rng.gauss(0, 0.006))),
                     "l": min(o, c) * (1 - abs(rng.gauss(0, 0.006))), "c": c, "v": 5_000_000})
         p = c
-    top = max(b["c"] for b in out[-21:-1])
-    last = out[-1]
-    last["c"] = max(last["c"], top * 1.01); last["h"] = max(last["h"], last["c"])
+    s20 = sum(b["c"] for b in out[-19:] + [{"c": p}]) / 20
+    day += timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    c = s20 * 1.012
+    out.append({"t": int(day.timestamp()), "o": s20, "h": c * 1.003, "l": s20 * 0.996, "c": c, "v": 5_000_000})
     return out
 
 

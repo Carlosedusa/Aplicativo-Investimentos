@@ -22,22 +22,23 @@ def test_b3_tickers_use_sa_suffix():
 def test_analysis_builds_atr_plan_and_odds():
     a = model.analyze("PETR4", demo_bars("PETR4"))
     p = a["plan"]
-    assert "breakout_20d" in a["setups"]
-    assert p["stop"] < p["entry"] < p["target"] and abs((p["target"] - p["entry"]) - 2 * p["risk"]) < 0.02
+    assert a["trend"]["up"] and "pullback_ma20" in a["setups"]
+    assert p["stop"] < p["entry"] < p["target"] and abs((p["target"] - p["entry"]) - p["target_r"] * p["risk"]) < 0.05
+    assert p["stop_basis"] == "pivô de baixa" and p["horizon_days"] == 15
     o = a["odds"]
     assert 0 < o["p_target"] < 1 and abs(o["p_target"] + o["p_stop"] + o["p_time"] - 1) < 1e-6
 
 
 def test_rules_block_and_size():
-    plan = model.analyze("VALE3", demo_bars("VALE3"))["plan"]
+    plan = model.analyze("PETR4", demo_bars("PETR4"))["plan"]
     mon = datetime(2026, 11, 9, 14, 0, tzinfo=timezone.utc)   # segunda 11:00 em Brasília
     sat = datetime(2026, 11, 7, 14, 0, tzinfo=timezone.utc)
-    ok = rules.evaluate("VALE3", plan, 100, 5000, 5000, [], mon, False)
+    ok = rules.evaluate("PETR4", plan, 100, 5000, 5000, [], mon, False)
     assert ok["verdict"] == "PASS" and ok["order"]["qty"] >= 1 and ok["order"]["max_loss"] <= 100
-    blocked = rules.evaluate("VALE3", plan, 100, 5000, 5000, [], sat, False)
+    blocked = rules.evaluate("PETR4", plan, 100, 5000, 5000, [], sat, False)
     assert blocked["verdict"] == "BLOCK" and "fechada" in blocked["reasons"][0]
-    assert rules.evaluate("VALE3", plan, 100, 5000, 5000, [], sat, True)["verdict"] == "PASS"
-    assert rules.evaluate("VALE3", plan, 0.01, 5000, 5000, [], mon, False)["verdict"] == "BLOCK"
+    assert rules.evaluate("PETR4", plan, 100, 5000, 5000, [], sat, True)["verdict"] == "PASS"
+    assert rules.evaluate("PETR4", plan, 0.01, 5000, 5000, [], mon, False)["verdict"] == "BLOCK"
 
 
 def test_scan_ranks_by_expected_r(client):
@@ -56,7 +57,34 @@ def test_order_flow_holds_overnight(client):
     pv = client.post("/swing/order/preview", json=body, headers=AUTH).json()
     assert pv["verdict"] == "PASS"
     r = client.post("/swing/orders", json=body, headers=AUTH)
-    assert r.status_code == 200 and r.json()["horizon_days"] == 10
+    assert r.status_code == 200 and r.json()["horizon_days"] == 15
     assert client.post("/swing/orders", json=body, headers=AUTH).json()["id"] == r.json()["id"]
     again = client.post("/swing/order/preview", json={**body, "client_order_id": "sw-2"}, headers=AUTH).json()
     assert again["verdict"] == "BLOCK"   # já tem posição em PETR4
+
+
+def _bars(closes, spread=0.5):
+    return [{"t": i, "o": c, "h": c + spread, "l": c - spread, "c": c, "v": 1} for i, c in enumerate(closes)]
+
+
+def test_pivots_need_three_candles_each_side():
+    #            0   1   2   3   4   5   6   7   8   9  10  11  12
+    closes = [10, 11, 12, 15, 12, 11, 10, 9, 8, 6, 8, 9, 10]
+    highs, lows = model.pivots(_bars(closes))
+    assert [i for i, _ in highs] == [3] and [i for i, _ in lows] == [9]
+    assert model.pivots(_bars(closes[:11]))[1] == []   # o fundo ainda não tem 3 velas depois: não confirmado
+
+
+def test_stop_goes_below_pivot_low_and_target_at_next_resistance():
+    lv = {"support": 95.0, "resistances": [101.0, 112.0], "last_pivot_high": 112.0}
+    p = model.plan_for(100.0, 2.0, lv)       # risco = 5 + 0,5 = 5,5 ; 101 dá só 0,18R, 112 dá 2,2R
+    assert p["stop"] == 94.5 and p["target"] == 112.0 and p["target_basis"] == "próxima resistência"
+    assert model.plan_for(100.0, 2.0, {"support": 80.0, "resistances": [], "last_pivot_high": None}) is None  # pivô longe demais
+    p2 = model.plan_for(100.0, 2.0, {"support": 99.8, "resistances": [], "last_pivot_high": None})
+    assert p2["stop"] == 98.0 and p2["target_basis"].startswith("projeção")   # stop mínimo de 1 ATR, alvo 3R
+
+
+def test_no_setup_without_uptrend():
+    down = _bars([100 - i * 0.3 for i in range(120)])
+    a = model.analyze("PETR4", down)
+    assert a["trend"]["up"] is False and a["setups"] == []

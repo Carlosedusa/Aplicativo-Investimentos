@@ -83,7 +83,7 @@ test("swing scan to paper trade flow", async () => {
   const first = page.locator("button.hit").first();
   const sym = (await first.locator("strong").innerText()).trim();
   await first.click();
-  await page.getByText(/Plano de saída/).waitFor();
+  await page.getByText(/Plano \(swing/).waitFor();
   await page.getByText("Chance (simulação do último ano)").waitFor();
   await shot(page, "2-ativo");
   await page.getByRole("button", { name: "Montar ordem de teste" }).click();
@@ -99,7 +99,7 @@ test("swing scan to paper trade flow", async () => {
   const pos = await r.json();
   assert.equal(pos.length, 1);
   assert.equal(pos[0].symbol, sym);
-  assert.equal(pos[0].horizon_days, 10);
+  assert.equal(pos[0].horizon_days, 15);
 });
 
 test("blocked order cannot be confirmed", async () => {
@@ -108,7 +108,7 @@ test("blocked order cannot be confirmed", async () => {
   await page.route("**/swing/order/preview", (route) => route.fulfill({ json: { verdict: "BLOCK", reasons: ["Bolsa fechada agora."], warnings: [], order: null } }));
   await scan(page);
   await page.locator("button.hit").first().click();
-  await page.getByText(/Plano de saída/).waitFor();
+  await page.getByText(/Plano \(swing/).waitFor();
   await page.locator("#tabs").getByRole("button", { name: "Ordem" }).click();
   await page.getByRole("button", { name: "Calcular tamanho" }).click();
   await page.getByText("Bloqueado pelo Risco").waitFor();

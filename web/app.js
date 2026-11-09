@@ -81,8 +81,8 @@ function loginView(msg) {
 }
 
 // ---------- scanner
-const SETUPS = { breakout_20d: "Rompeu máxima de 20 dias", bull_flag: "Bandeira de alta", reclaim_ma20: "Retomou a média de 20",
-  oversold: "Sobrevendida (RSI<30)", oversold_bounce: "Rebote após sobrevenda", orb: "Rompimento da abertura" };
+const SETUPS = { breakout_resistance: "Rompeu a resistência", pullback_ma20: "Pullback na média de 20",
+  support_bounce: "Repique no suporte" };
 // Modo treino: ordens de teste ignoram o horário do mercado (as outras regras de Risco continuam).
 const trainOn = () => store.get("train", "1") === "1";
 function trainBox() {
@@ -125,7 +125,7 @@ function scannerView() {
     if (!s) return;
     out.replaceChildren(
       h("p", { class: "muted" }, `${s.scanned} ações analisadas${s.failed ? " (" + s.failed + " sem dados)" : ""}, ${s.hits.length} com sinal. Ordenadas pelo retorno esperado.`),
-      h("p", { class: "muted small" }, "Chance = 2.000 simulações com o último ano do próprio ativo, operação de até 10 pregões, stop em 1,5 ATR (volatilidade diária) e alvo em 2R. Não é previsão."),
+      h("p", { class: "muted small" }, "Só ações em tendência de alta (médias de 20 e 50). Stop abaixo do último pivô de baixa; alvo na próxima resistência. Chance = 2.000 simulações com o último ano do próprio ativo, até 15 pregões. Não é previsão."),
       ...s.hits.map((x) => {
         const o = x.odds, good = o.p_target >= o.breakeven;
         return h("button", { class: "hit", onclick: () => selectSymbol(x.symbol) },
@@ -133,7 +133,7 @@ function scannerView() {
           h("span", { class: "muted" }, x.setups.map((t) => SETUPS[t] || t).join(", ")),
           h("span", { class: "num " + (o.avg_r >= 0 ? "gain" : "loss") }, (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R esperado"),
           h("span", { class: "full" }, h("span", { class: "chance " + (good ? "gain" : "loss") }, `Chance de chegar ao alvo: ${Math.round(o.p_target * 100)}%`,
-            h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%) · stop −${fmt(x.plan.risk_pct)}% · alvo +${fmt(x.plan.target_pct)}%`))));
+            h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%) · stop −${fmt(x.plan.risk_pct)}% · alvo +${fmt(x.plan.target_pct)}% (${fmt(x.plan.target_r)}R)`))));
       }));
   };
   const run = async () => {
@@ -151,7 +151,7 @@ function scannerView() {
   show();
   return h("section", { class: "stack" },
     h("h1", null, "Scanner · Ibovespa"),
-    h("p", { class: "muted" }, "Swing trade: operações de dias (até 10 pregões) em ações da B3. É uma lista para estudar, não para comprar."),
+    h("p", { class: "muted" }, "Seguimento de tendência (swing): operações de alguns dias a poucas semanas em ações da B3. É uma lista para estudar, não para comprar."),
     trainBox(),
     h("button", { onclick: run }, "Varrer o Ibovespa"),
     out);
@@ -171,7 +171,7 @@ function chartCard(symbol, levels, title, interval = "5m") {
   const stamp = h("p", { class: "muted" }, "Carregando gráfico…");
   const msg = h("div");
   let candles = [], view = null; // view = {x0,x1,y0,y1} em coordenadas de dados (x = nº da vela, y = preço)
-  const lv = [levels.target, levels.entry, levels.stop].filter((v) => typeof v === "number");
+  const lv = [levels.target, levels.entry, levels.stop, levels.support].filter((v) => typeof v === "number");
 
   const fit = () => {
     const n = candles.length, from = Math.max(0, n - 78); // ~1 pregão
@@ -195,7 +195,18 @@ function chartCard(symbol, levels, title, interval = "5m") {
     });
     const parts = [el("defs", {}), g];
     parts[0].append(clip);
-    [[levels.target, "Alvo", "lt"], [levels.entry, "Entrada", "le"], [levels.stop, "Stop", "ls"]].forEach(([v, name, cls]) => {
+    if (interval === "1d") {  // médias móveis de 20 e 50 dias
+      [[20, "ma20"], [50, "ma50"]].forEach(([n, cls]) => {
+        const pts = [];
+        for (let i = n - 1; i < candles.length; i++) {
+          if (i < x0 - 1 || i > x1 + 1) continue;
+          let sum = 0; for (let k = i - n + 1; k <= i; k++) sum += candles[k].c;
+          pts.push(`${X(i).toFixed(1)},${Y(sum / n).toFixed(1)}`);
+        }
+        if (pts.length > 1) g.append(el("polyline", { points: pts.join(" "), class: "ma " + cls }));
+      });
+    }
+    [[levels.target, "Alvo", "lt"], [levels.resistance, "Resist.", "lr"], [levels.entry, "Entrada", "le"], [levels.support, "Suporte", "lsu"], [levels.stop, "Stop", "ls"]].forEach(([v, name, cls]) => {
       if (typeof v !== "number") return;
       const yy = Math.max(PT + 10, Math.min(H - PB - 10, Y(v))), out = Y(v) < PT || Y(v) > H - PB;
       if (!out) parts.push(el("line", { x1: 0, x2: PW, y1: yy, y2: yy, class: "lvl " + cls }));
@@ -274,19 +285,21 @@ function assetView() {
     const a = state.asset, p = a.plan, o = a.odds;
     out.replaceChildren(
       h("div", { class: "card stack" }, h("div", { class: "row" }, h("strong", null, a.setups.length ? a.setups.map((t) => SETUPS[t] || t).join(", ") : "Sem sinal agora"), h("span", { class: "num" }, money(a.price))),
-        h("p", { class: "muted" }, `RSI ${fmt(a.rsi)} · ATR (variação diária típica) ${money(a.atr)} · liquidez média ${money(a.turnover)}/dia`)),
-      p ? chartCard(state.symbol, { entry: p.entry, stop: p.stop, target: p.target }, "Gráfico · velas diárias", "1d") : null,
-      p ? h("div", { class: "card" }, h("h2", null, "Plano de saída (swing, até " + p.horizon_days + " pregões)"), h("div", { class: "ladder" },
-        h("div", { class: "step target" }, h("span", null, `Alvo (${p.target_r}R, +${fmt(p.target_pct)}%)`), h("span", { class: "num" }, money(p.target))),
+        h("p", { class: a.trend.up ? "gain" : "loss" }, a.trend.up ? "Tendência de alta: preço acima da média de 50, média de 20 acima da de 50 e a de 50 subindo." : "Sem tendência de alta clara: o método só compra a favor da tendência."),
+        h("p", { class: "muted" }, `Média 20: ${money(a.trend.sma20)} · Média 50: ${money(a.trend.sma50)} · Suporte: ${money(a.support)} · Resistência: ${money(a.resistance)}`),
+        h("p", { class: "muted" }, `RSI ${fmt(a.rsi)} · ATR (variação diária típica) ${money(a.atr)} · liquidez ${money(a.turnover)}/dia`)),
+      chartCard(state.symbol, p ? { entry: p.entry, stop: p.stop, target: p.target, support: p.support, resistance: p.resistance } : { support: a.support, resistance: a.resistance }, "Gráfico · velas diárias + médias de 20 e 50", "1d"),
+      p ? h("div", { class: "card" }, h("h2", null, "Plano (swing, até " + p.horizon_days + " pregões)"), h("div", { class: "ladder" },
+        h("div", { class: "step target" }, h("span", null, `Alvo: ${p.target_basis} (${fmt(p.target_r)}R, +${fmt(p.target_pct)}%)`), h("span", { class: "num" }, money(p.target))),
         h("div", { class: "step entry" }, h("span", null, "Entrada"), h("span", { class: "num" }, money(p.entry))),
-        h("div", { class: "step stop" }, h("span", null, `Stop (1,5 ATR, −${fmt(p.risk_pct)}%)`), h("span", { class: "num" }, money(p.stop)))),
-        h("p", { class: "muted" }, `Risco de ${money(p.risk)} por ação. Se não bater stop nem alvo, a ordem de teste sai ao fim de ${p.horizon_days} pregões.`)) : h("div", { class: "error" }, "Sem plano: volatilidade não permite calcular stop e alvo."),
+        h("div", { class: "step stop" }, h("span", null, `Stop: abaixo do ${p.stop_basis} (−${fmt(p.risk_pct)}%)`), h("span", { class: "num" }, money(p.stop)))),
+        h("p", { class: "muted" }, `Risco de ${money(p.risk)} por ação. Se não bater stop nem alvo, a ordem de teste sai ao fim de ${p.horizon_days} pregões. O stop é fixo (não acompanha a alta).`)) : h("div", { class: "error" }, "Sem plano: o último pivô de baixa está longe demais (risco alto para o ganho) ou faltam dados."),
       o && h("div", { class: "card stack" }, h("h2", null, "Chance (simulação do último ano)"),
         h("div", { class: "row" }, h("span", null, "Chegar ao alvo"), h("strong", { class: "num " + (o.p_target >= o.breakeven ? "gain" : "loss") }, Math.round(o.p_target * 100) + "%")),
         h("div", { class: "row" }, h("span", null, "Bater o stop"), h("span", { class: "num" }, Math.round(o.p_stop * 100) + "%")),
         h("div", { class: "row" }, h("span", null, `Nenhum dos dois em ${o.horizon_days} pregões`), h("span", { class: "num" }, Math.round(o.p_time * 100) + "%")),
         h("div", { class: "row" }, h("span", null, "Retorno esperado"), h("span", { class: "num " + (o.avg_r >= 0 ? "gain" : "loss") }, (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R")),
-        h("p", { class: "muted small" }, `Para a conta compensar com alvo de 2R, a chance precisa passar de ${Math.round(o.breakeven * 100)}%. Simulação com ${o.replays} caminhos; não é previsão: balanços e notícias podem mudar tudo.`)),
+        h("p", { class: "muted small" }, `Para a conta compensar com alvo de ${fmt(p.target_r)}R, a chance precisa passar de ${Math.round(o.breakeven * 100)}%. Simulação com ${o.replays} caminhos; não é previsão: balanços e notícias podem mudar tudo.`)),
       p && h("button", { onclick: () => go("ticket") }, "Montar ordem de teste"));
   };
   (async () => {
@@ -331,7 +344,7 @@ function ticketView() {
         h("p", { class: "muted small" }, `A posição fica aberta de um dia para o outro, até bater stop ou alvo, ou por no máximo ${o.horizon_days} pregões.`)) : null,
       ok ? h("div", { class: "ok" }, h("strong", null, "Aprovado pelo Risco"), ...t.risk.warnings.map((w) => h("p", { class: "muted" }, w)))
          : h("div", { class: "error", role: "alert" }, h("strong", null, "Bloqueado pelo Risco"), ...t.risk.reasons.map((r) => h("p", null, ptReason(r)))),
-      chartCard(state.symbol, t.risk.order ? { entry: o.entry, stop: o.stop, target: o.target } : {}, "Gráfico · velas diárias", "1d"),
+      chartCard(state.symbol, t.risk.order ? { entry: o.entry, stop: o.stop, target: o.target } : {}, "Gráfico · velas diárias + médias de 20 e 50", "1d"),
       confirmBtn);
   };
   const calc = async () => {
