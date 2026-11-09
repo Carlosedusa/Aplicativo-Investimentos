@@ -1,8 +1,11 @@
 import secrets
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from .config import Settings
+from .engine import EngineError, run_tool
+from .routes_analysis import build_router as analysis_router
 from .tasks import TaskManager
 
 
@@ -20,6 +23,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(401, "Token inválido.")
 
     app.state.require_token = require_token
+    app.state.runner = lambda tool, args: run_tool(tool, args, settings.workdir)
+
+    @app.exception_handler(EngineError)
+    async def engine_error(_request, exc: EngineError):
+        return JSONResponse({"detail": str(exc)}, status_code=502)
+
+    app.include_router(analysis_router(require_token))
 
     @app.get("/health")
     def health():

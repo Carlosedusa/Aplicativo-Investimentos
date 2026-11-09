@@ -35,6 +35,13 @@ def run_tool(tool: str, args: list[str], workdir: Path, timeout: int = 300,
     except subprocess.TimeoutExpired:
         raise EngineError("A ferramenta %s demorou demais." % tool, 124, "timeout")
     if proc.returncode != 0:
+        # Algumas ferramentas usam exit 1 como alerta ("há algo novo") e ainda assim imprimem JSON.
+        try:
+            doc = json.loads(proc.stdout)
+            if isinstance(doc, dict):
+                return doc
+        except json.JSONDecodeError:
+            pass
         msg = (proc.stderr or proc.stdout).strip().splitlines()
         raise EngineError(msg[-1] if msg else "A ferramenta %s falhou." % tool,
                           proc.returncode, proc.stderr)

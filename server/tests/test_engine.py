@@ -35,3 +35,9 @@ def test_run_tool_non_json_output_is_engine_error(tmp_path):
     eng = make_engine(tmp_path, 'print("not json")')
     with pytest.raises(EngineError):
         run_tool("scanner", [], tmp_path, engine_dir=eng)
+
+
+def test_run_tool_accepts_nonzero_exit_when_stdout_is_json(tmp_path):
+    # news.py usa exit 1 para dizer "há algo novo"; o JSON continua válido.
+    eng = make_engine(tmp_path, 'import sys\nprint("{\\"moves\\": []}")\nsys.exit(1)')
+    assert run_tool("scanner", [], tmp_path, engine_dir=eng) == {"moves": []}
