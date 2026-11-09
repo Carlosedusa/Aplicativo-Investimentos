@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from .config import Settings
 from .engine import EngineError, run_tool
 from .routes_analysis import build_router as analysis_router
+from .routes_trade import build_router as trade_router
 from .tasks import TaskManager
 
 
@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse({"detail": str(exc)}, status_code=502)
 
     app.include_router(analysis_router(require_token))
+    app.include_router(trade_router(require_token))
 
     @app.get("/health")
     def health():

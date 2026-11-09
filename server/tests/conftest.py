@@ -47,6 +47,8 @@ class FakeRunner:
         trader.mkdir(parents=True, exist_ok=True)
         if tool == "scanner":
             (trader / "watchlist.json").write_text(json.dumps(doc))
+        if tool == "budget":
+            (trader / "orders.json").write_text(json.dumps(doc))
         if tool == "exit":
             (trader / "plan.json").write_text(json.dumps(doc))
         return doc
