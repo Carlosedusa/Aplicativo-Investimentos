@@ -1,9 +1,11 @@
 import secrets
+from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .engine import EngineError, run_tool
@@ -67,5 +69,9 @@ def create_app(settings: Settings | None = None, feed=None, clock=None) -> FastA
         if t is None:
             raise HTTPException(404, "Tarefa não encontrada.")
         return t
+
+    web_dir = Path(__file__).resolve().parents[2] / "web"
+    if web_dir.is_dir():
+        app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
 
     return app

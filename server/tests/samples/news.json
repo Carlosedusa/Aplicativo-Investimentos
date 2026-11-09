@@ -10,6 +10,21 @@
       "moving": true
     }
   ],
-  "items": [],
+  "items": [
+    {
+      "id": "rss:demo1",
+      "source": "Yahoo Finance",
+      "kind": "headline",
+      "ticker": "TSLA",
+      "title": "Tesla-SpaceX Merger Mania Strikes Wall Street Ahead of Earnings",
+      "summary": "",
+      "time": "2026-10-19T12:04:00+00:00",
+      "link": "https://finance.yahoo.com/",
+      "tags": [
+        "earnings",
+        "deal"
+      ]
+    }
+  ],
   "notes": []
 }

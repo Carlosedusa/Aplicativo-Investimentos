@@ -1,0 +1,295 @@
+"use strict";
+
+const TABS = [["scanner", "Scanner"], ["ativo", "Ativo"], ["simular", "Simular"], ["ticket", "Ordem"], ["carteira", "Carteira"]];
+const state = { tab: "scanner", symbol: null, scan: null, asset: null, tm: null, ticket: null, wallet: null, toast: null };
+const view = document.getElementById("view");
+const tabsEl = document.getElementById("tabs");
+
+// ---------- utilidades
+const usd = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD" });
+const pct = (x) => (x * 100).toFixed(1).replace(".", ",") + "%";
+const money = (n) => (n == null ? "—" : usd.format(n));
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, "");
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null && k !== false) el.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return el;
+}
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* sem armazenamento */ } },
+};
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+
+class ApiError extends Error {
+  constructor(message, status, extra) { super(message); this.status = status; this.extra = extra || {}; }
+}
+
+async function api(path, opts = {}) {
+  let res;
+  try {
+    res = await fetch(path, {
+      method: opts.method || "GET",
+      headers: { Authorization: "Bearer " + store.get("token", ""), "Content-Type": "application/json" },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch {
+    throw new ApiError("Sem conexão com o servidor. Confira se ele está ligado.", 0);
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* corpo vazio */ }
+  if (res.status === 401) { store.set("token", ""); render(); throw new ApiError("Token inválido.", 401); }
+  if (!res.ok) {
+    const d = data && data.detail;
+    const msg = typeof d === "string" ? d : Array.isArray(d) ? "Dados inválidos." : "Erro " + res.status;
+    throw new ApiError(msg, res.status, data || {});
+  }
+  return data;
+}
+
+async function waitTask(id) {
+  for (let i = 0; i < 400; i++) {
+    const t = await api("/tasks/" + id);
+    if (t.status === "done") return t.result;
+    if (t.status === "error") throw new ApiError(t.error || "A tarefa falhou.", 502);
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+  throw new ApiError("A tarefa demorou demais.", 504);
+}
+
+const errorBox = (e) => h("div", { class: "error", role: "alert" }, e.message || String(e));
+
+// ---------- login
+function loginView(msg) {
+  const input = h("input", { id: "token", type: "password", autocomplete: "off", placeholder: "Cole o token do servidor" });
+  const out = h("div");
+  const go = async () => {
+    store.set("token", input.value.trim());
+    try { await api("/auth/check"); render(); }
+    catch (e) { view.replaceChildren(loginView(e)); }
+  };
+  return h("section", { class: "stack" },
+    h("h1", null, "Entrar"),
+    h("p", { class: "muted" }, "Digite o token que você definiu no servidor (API_TOKEN)."),
+    h("label", null, "Token", input),
+    out, msg && errorBox(msg),
+    h("button", { onclick: go }, "Entrar"));
+}
+
+// ---------- scanner
+function scannerView() {
+  const out = h("div", { class: "stack" });
+  const show = () => {
+    const s = state.scan;
+    if (!s) return;
+    out.replaceChildren(
+      h("p", { class: "muted" }, `${s.counts ? s.counts.scanned : s.scanned} gráficos analisados, ${s.hits.length} com o padrão.`),
+      ...s.hits.slice(0, 40).map((hit) => h("button", { class: "hit", onclick: () => { selectSymbol(hit.symbol); } },
+        h("strong", null, hit.symbol), h("span", { class: "num" }, money(hit.price)),
+        h("span", { class: "muted" }, "rompeu às " + hit.at), h("span", { class: "num gain" }, "+" + String(hit.pct_over).replace(".", ",") + "%"))));
+  };
+  const run = async (mode) => {
+    out.replaceChildren(h("p", { class: "spinner" }, "Varrendo o mercado…"));
+    try {
+      const { task_id } = await api("/scan/" + mode, { method: "POST", body: {} });
+      state.scan = await waitTask(task_id);
+      show();
+    } catch (e) { out.replaceChildren(errorBox(e)); }
+  };
+  show();
+  return h("section", { class: "stack" },
+    h("h1", null, "Scanner"),
+    h("p", { class: "muted" }, "Procura gráficos que cumprem uma regra. É uma lista para estudar, não para comprar."),
+    h("button", { onclick: () => run("daily") }, "Pré-mercado"),
+    h("button", { class: "ghost", onclick: () => run("orb") }, "Rompimento da abertura"),
+    out);
+}
+
+function selectSymbol(sym) {
+  state.symbol = sym; state.asset = null; state.tm = null; state.ticket = null;
+  go("ativo");
+}
+
+// ---------- ativo
+function assetView() {
+  if (!state.symbol) return emptyView("Escolha um ativo", "Rode o Scanner e toque em um ativo da lista.");
+  const out = h("div", { class: "stack" }, h("p", { class: "spinner" }, "Carregando " + state.symbol + "…"));
+  const draw = () => {
+    const a = state.asset;
+    const status = a.entry.status === "triggered" ? "Entrada disparada" : a.entry.status === "waiting" ? "Esperando o gatilho" : a.entry.status;
+    const p = a.plan;
+    out.replaceChildren(
+      h("div", { class: "card stack" }, h("div", { class: "row" }, h("strong", null, status), h("span", { class: "num" }, money(a.entry.trigger && a.entry.trigger.price))),
+        h("p", { class: "muted" }, a.entry.reason)),
+      p ? h("div", { class: "card" }, h("h2", null, "Plano de saída"), h("div", { class: "ladder" },
+        h("div", { class: "step target" }, h("span", null, "Alvo (" + p.target_r + "R)"), h("span", { class: "num" }, money(p.target))),
+        h("div", { class: "step entry" }, h("span", null, "Entrada"), h("span", { class: "num" }, money(p.entry))),
+        h("div", { class: "step stop" }, h("span", null, "Stop (" + ({ or_mid: "meio da faixa inicial", or_low: "mínima da faixa inicial" }[p.stop_rule] || p.stop_rule) + ")"), h("span", { class: "num" }, money(p.stop)))),
+        h("p", { class: "muted" }, `Risco de ${money(p.risk_per_share)} por ação. Sair até as ${p.flat_by}.`)) : h("div", { class: "error" }, a.planError || "Sem plano de saída."),
+      h("div", { class: "card" }, h("h2", null, "Notícias"),
+        a.news.items.length ? h("ul", { class: "plain" }, a.news.items.map((n) => h("li", null, h("a", { href: n.link || "#", target: "_blank", rel: "noopener" }, n.title), h("p", { class: "muted" }, n.source)))) : h("p", { class: "muted" }, "Nenhuma notícia nova nas últimas horas.")),
+      p && h("button", { onclick: () => go("simular") }, "Simular chances"));
+  };
+  (async () => {
+    try {
+      const sym = state.symbol;
+      const [entry, news] = await Promise.all([api("/entry/" + sym), api("/news?tickers=" + sym + "&hours=24")]);
+      let plan = null, planError = null;
+      try { plan = await api("/exit/plan", { method: "POST", body: {} }); } catch (e) { planError = e.message; }
+      state.asset = { entry, news, plan, planError };
+      draw();
+    } catch (e) { out.replaceChildren(errorBox(e)); }
+  })();
+  return h("section", { class: "stack" }, h("h1", null, state.symbol), out);
+}
+
+// ---------- time machine
+function simularView() {
+  if (!state.asset || !state.asset.plan) return emptyView("Sem plano para simular", "Abra um ativo com plano de saída primeiro.");
+  const out = h("div", { class: "stack" });
+  const draw = () => {
+    const r = state.tm, mc = r.mc, hist = r.history;
+    out.replaceChildren(
+      h("div", { class: "card stack" },
+        h("h2", null, `${mc.replays.toLocaleString("pt-BR")} sessões simuladas`),
+        h("div", { class: "ruler", role: "img", "aria-label": `Stop primeiro ${pct(mc.p_stop)}, em aberto ${pct(mc.p_neither)}, alvo primeiro ${pct(mc.p_target)}` },
+          h("span", { class: "s", style: `flex:${mc.p_stop}` }),
+          h("span", { class: "n", style: `flex:${mc.p_neither}` }),
+          h("span", { class: "t", style: `flex:${mc.p_target}` })),
+        h("div", { class: "legend" },
+          h("span", { class: "loss" }, "Stop primeiro " + pct(mc.p_stop)),
+          h("span", null, "Em aberto " + pct(mc.p_neither)),
+          h("span", { class: "gain" }, "Alvo primeiro " + pct(mc.p_target)))),
+      h("div", { class: "card stack" }, h("h2", null, "Veredito"),
+        h("p", null, `Em ${hist.triggered} operações passadas com a mesma regra, o resultado médio foi ${String(hist.avg_R).replace(".", ",")}R por operação.`),
+        h("p", { class: "muted", lang: "en" }, r.verdict),
+        h("p", { class: "muted" }, `Nas ${hist.sessions} sessões passadas, o padrão apareceu ${hist.triggered} vezes: alvo ${hist.target}, stop ${hist.stop}, sem resolver ${hist.close}.`)),
+      h("button", { onclick: () => go("ticket") }, "Montar ordem de teste"));
+  };
+  if (state.tm) draw();
+  else {
+    out.replaceChildren(h("p", { class: "spinner" }, "Simulando 10.000 sessões…"));
+    (async () => {
+      try {
+        const { task_id } = await api("/timemachine/run", { method: "POST", body: {} });
+        state.tm = await waitTask(task_id);
+        if (state.tab === "simular") draw();
+      } catch (e) { out.replaceChildren(errorBox(e)); }
+    })();
+  }
+  return h("section", { class: "stack" }, h("h1", null, "Simulação · " + state.symbol), out);
+}
+
+// ---------- ordem de teste
+function ticketView() {
+  if (!state.asset || !state.asset.plan) return emptyView("Sem plano para a ordem", "Abra um ativo com plano de saída primeiro.");
+  const budget = h("input", { id: "budget", type: "number", inputmode: "decimal", min: "1", value: store.get("budget", "5000") });
+  const maxLoss = h("input", { id: "maxloss", type: "number", inputmode: "decimal", min: "1", value: store.get("maxloss", "50") });
+  const out = h("div", { class: "stack" });
+  let sending = false;
+
+  const draw = () => {
+    const t = state.ticket;
+    if (!t) return;
+    const ok = t.risk.verdict === "PASS";
+    const confirmBtn = h("button", { id: "confirm", disabled: !ok || sending, onclick: async () => {
+      sending = true; confirmBtn.disabled = true;
+      try {
+        await api("/paper/orders", { method: "POST", body: { client_order_id: t.clientOrderId, symbol: t.order.symbol,
+          qty: t.order.qty, stop: t.order.stop, target: t.order.target, confirm: true } });
+        state.toast = "Ordem de teste enviada."; state.ticket = null; state.wallet = null;
+        go("carteira");
+      } catch (e) {
+        sending = false;
+        out.append(errorBox(e));
+        confirmBtn.disabled = !ok;
+      }
+    } }, "Confirmar ordem de teste");
+    out.replaceChildren(
+      h("div", { class: "card stack" },
+        h("div", { class: "row" }, h("strong", null, `Comprar ${t.order.qty} ${t.order.symbol}`), h("span", { class: "num" }, money(t.order.entry))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Stop"), h("span", { class: "num loss" }, money(t.order.stop))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Alvo"), h("span", { class: "num gain" }, money(t.order.target))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Perda máxima no stop"), h("span", { class: "num" }, money(t.order.max_loss)))),
+      ok ? h("div", { class: "ok" }, h("strong", null, "Aprovado pelo Risco"), ...t.risk.warnings.map((w) => h("p", { class: "muted" }, w)))
+         : h("div", { class: "error", role: "alert" }, h("strong", null, "Bloqueado pelo Risco"), ...t.risk.reasons.map((r) => h("p", null, r))),
+      confirmBtn);
+  };
+  const calc = async () => {
+    store.set("budget", budget.value); store.set("maxloss", maxLoss.value);
+    out.replaceChildren(h("p", { class: "spinner" }, "Calculando…"));
+    try {
+      const order = await api("/budget/size", { method: "POST", body: { budget: Number(budget.value), max_loss: Number(maxLoss.value) } });
+      const risk = await api("/risk/check", { method: "POST" });
+      state.ticket = { order, risk, clientOrderId: uid() };
+      draw();
+    } catch (e) { out.replaceChildren(errorBox(e)); }
+  };
+  if (state.ticket) draw();
+  return h("section", { class: "stack" },
+    h("h1", null, "Ordem de teste"),
+    h("label", null, "Caixa de teste (US$)", budget),
+    h("label", null, "Perda máxima por operação (US$)", maxLoss),
+    h("button", { class: "ghost", onclick: calc }, "Calcular tamanho"),
+    out);
+}
+
+// ---------- carteira
+function walletView() {
+  const out = h("div", { class: "stack" });
+  const draw = () => {
+    const { account: a, positions, history } = state.wallet;
+    const cls = (n) => (n > 0 ? "gain" : n < 0 ? "loss" : "");
+    out.replaceChildren(
+      h("div", { class: "card stack" }, h("h2", null, "Patrimônio de teste"), h("p", { class: "big num" }, money(a.equity)),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Caixa"), h("span", { class: "num" }, money(a.cash))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Resultado aberto"), h("span", { class: "num " + cls(a.open_pnl) }, money(a.open_pnl))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Resultado fechado"), h("span", { class: "num " + cls(a.closed_pnl) }, money(a.closed_pnl)))),
+      h("div", { class: "card" }, h("h2", null, "Posições abertas"),
+        positions.length ? h("ul", { class: "plain" }, positions.map((p) => h("li", { class: "row" },
+          h("span", null, h("strong", null, `${p.qty} ${p.symbol}`), h("span", { class: "muted" }, " a " + money(p.entry))),
+          h("span", { class: "num " + cls(p.open_pnl) }, money(p.open_pnl))))) : h("p", { class: "muted" }, "Nenhuma posição. Monte uma ordem de teste a partir do Scanner.")),
+      h("div", { class: "card" }, h("h2", null, "Histórico"),
+        history.length ? h("ul", { class: "plain" }, history.map((t) => h("li", { class: "row" },
+          h("span", null, h("strong", null, `${t.qty} ${t.symbol}`), h("span", { class: "muted" }, " fechou no " + ({ stop: "stop", target: "alvo", eod: "fim do dia" })[t.reason])),
+          h("span", { class: "num " + cls(t.pnl) }, money(t.pnl))))) : h("p", { class: "muted" }, "Nenhuma operação fechada ainda.")));
+  };
+  const load = async () => {
+    try {
+      const [account, positions, history] = await Promise.all([api("/paper/account"), api("/paper/positions"), api("/paper/history")]);
+      state.wallet = { account, positions, history };
+      if (state.tab === "carteira") draw();
+    } catch (e) { out.replaceChildren(errorBox(e)); }
+  };
+  if (state.wallet) draw(); else out.replaceChildren(h("p", { class: "spinner" }, "Carregando…"));
+  load();
+  const toast = state.toast; state.toast = null;
+  return h("section", { class: "stack" }, h("h1", null, "Carteira"),
+    toast && h("div", { class: "ok toast", role: "status" }, toast),
+    h("button", { class: "ghost", onclick: load }, "Atualizar"), out);
+}
+
+function emptyView(title, text) {
+  return h("section", { class: "stack" }, h("h1", null, title), h("p", { class: "muted" }, text));
+}
+
+// ---------- navegação
+function go(tab) { state.tab = tab; render(); window.scrollTo(0, 0); }
+
+function render() {
+  tabsEl.replaceChildren();
+  if (!store.get("token", "")) { tabsEl.hidden = true; view.replaceChildren(loginView()); return; }
+  tabsEl.hidden = false;
+  for (const [id, label] of TABS) {
+    tabsEl.append(h("button", { "aria-current": state.tab === id ? "page" : null, onclick: () => go(id) }, label));
+  }
+  const views = { scanner: scannerView, ativo: assetView, simular: simularView, ticket: ticketView, carteira: walletView };
+  view.replaceChildren(views[state.tab]());
+}
+
+setInterval(() => { if (state.tab === "carteira" && store.get("token", "")) render(); }, 30000);
+render();

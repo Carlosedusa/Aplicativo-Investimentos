@@ -1,0 +1,54 @@
+:root {
+  --paper: #e8edf0; --card: #f7f9fa; --ink: #14202b; --muted: #55646f; --line: #c5d0d7;
+  --gain: #0b7a4b; --loss: #b3261e; --flat: #8a9aa5; --action: #14202b; --on-action: #f7f9fa;
+  --warn-bg: #14202b; --warn-ink: #e8edf0;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #0f171d; --card: #18232b; --ink: #e8edf0; --muted: #9aabb6; --line: #2c3a44;
+    --gain: #4cc38a; --loss: #ff7b72; --flat: #62727d; --action: #e8edf0; --on-action: #0f171d;
+    --warn-bg: #e8edf0; --warn-ink: #14202b; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.4; }
+body { max-width: 480px; margin: 0 auto; min-height: 100dvh; padding-bottom: 76px; }
+.num { font-variant-numeric: tabular-nums; }
+.risk-note { position: sticky; top: 0; z-index: 5; background: var(--warn-bg); color: var(--warn-ink); font-size: 12px; padding: 6px 16px; }
+main { padding: 16px; display: grid; gap: 16px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.stack { display: grid; gap: 8px; }
+button { font: inherit; border-radius: 8px; border: 1px solid var(--action); background: var(--action); color: var(--on-action);
+  padding: 12px 14px; min-height: 44px; cursor: pointer; font-weight: 600; }
+button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, a:focus-visible, .hit:focus-visible { outline: 3px solid #2f6fed; outline-offset: 2px; }
+input { font: inherit; width: 100%; padding: 12px; min-height: 44px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+.error { border-left: 4px solid var(--loss); background: var(--card); padding: 10px 12px; border-radius: 6px; }
+.ok { border-left: 4px solid var(--gain); background: var(--card); padding: 10px 12px; border-radius: 6px; }
+.gain { color: var(--gain); } .loss { color: var(--loss); }
+#tabs { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 480px); display: grid;
+  grid-template-columns: repeat(5, 1fr); background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+#tabs button { background: transparent; color: var(--muted); border: 0; border-radius: 0; font-size: 12px; font-weight: 600; padding: 14px 2px; }
+#tabs button[aria-current="page"] { color: var(--ink); box-shadow: inset 0 3px 0 var(--ink); }
+.hit { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; text-align: left; width: 100%; background: var(--card); color: var(--ink);
+  border: 1px solid var(--line); font-weight: 400; }
+.hit strong { font-size: 17px; }
+.ladder { display: grid; gap: 0; }
+.ladder .step { display: flex; justify-content: space-between; padding: 10px 0 10px 14px; border-left: 4px solid var(--flat); }
+.ladder .target { border-color: var(--gain); } .ladder .stop { border-color: var(--loss); } .ladder .entry { border-color: var(--ink); font-weight: 700; }
+.ruler { display: flex; height: 36px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+.ruler span { min-width: 0; }
+.ruler .s { background: var(--loss); } .ruler .n { background: var(--flat); } .ruler .t { background: var(--gain); }
+.legend { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-top: 6px; }
+ul.plain { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.big { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+.spinner { color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .toast { animation: pop .25s ease-out; } @keyframes pop { from { transform: translateY(6px); opacity: 0; } } }
+a { color: var(--ink); text-decoration-color: var(--flat); text-underline-offset: 3px; }
+.legend span { font-weight: 600; }
