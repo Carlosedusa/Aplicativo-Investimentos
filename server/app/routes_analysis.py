@@ -27,6 +27,18 @@ class ExitBody(BaseModel):
     target: str | None = Field(default=None, pattern=RULE)
 
 
+class OddsHit(BaseModel):
+    symbol: str = Field(pattern=SYMBOL)
+    price: float = Field(gt=0)
+    or_high: float | None = None
+    or_low: float | None = None
+    bar_index: int | None = Field(default=None, ge=0, le=76)
+
+
+class OddsBody(BaseModel):
+    hits: list[OddsHit] = Field(min_length=1, max_length=30)
+
+
 class TimeMachineBody(BaseModel):
     until: str | None = Field(default=None, pattern=HHMM)
     seed: int | None = None
@@ -65,6 +77,14 @@ def build_router(require_token) -> APIRouter:
             return runner("scanner", args)
 
         return {"task_id": request.app.state.tasks.submit(job)}
+
+    @r.post("/odds")
+    def odds(body: OddsBody, request: Request):
+        """Chance de chegar ao alvo antes do stop para cada ativo da lista (tarefa em segundo plano)."""
+        from .odds import compute_many
+        fn = request.app.state.odds
+        hits = [h.model_dump() for h in body.hits]
+        return {"task_id": request.app.state.tasks.submit(lambda: compute_many(fn, hits))}
 
     @r.get("/candles/{symbol}")
     def candles(symbol: str, request: Request):

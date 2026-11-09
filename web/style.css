@@ -73,3 +73,5 @@ a { color: var(--ink); text-decoration-color: var(--flat); text-underline-offset
 .tools, .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 button.mini { min-height: 36px; padding: 6px 12px; font-size: 14px; }
 .small { font-size: 12px; }
+.hit .full { grid-column: 1 / -1; margin-top: 4px; font-size: 14px; font-weight: 600; }
+.hit .chance { font-weight: 700; }

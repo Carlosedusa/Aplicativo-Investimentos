@@ -96,3 +96,21 @@ def test_popular_scan_uses_fixed_symbol_list_and_skips_universe(client, fake_eng
     assert len(fake_engine.calls) == 1
     tool, args = fake_engine.calls[0]
     assert args[:2] == ["daily", "--symbols"] and "TSLA" in args[2].split(",") and len(args[2].split(",")) >= 40
+
+
+def test_odds_returns_chance_per_symbol(client):
+    import time
+    from app.devmode import demo_odds
+    client.app.state.odds = demo_odds
+    hits = [{"symbol": "TSLA", "price": 100.0, "or_high": 99.0, "or_low": 97.0, "bar_index": 3},
+            {"symbol": "AAPL", "price": 50.0}]
+    r = client.post("/odds", json={"hits": hits}, headers=AUTH)
+    assert r.status_code == 200
+    for _ in range(50):
+        t = client.get("/tasks/" + r.json()["task_id"], headers=AUTH).json()
+        if t["status"] == "done":
+            break
+        time.sleep(0.05)
+    o = t["result"]["odds"]
+    assert o["TSLA"]["stop"] == 98.0 and o["TSLA"]["target"] == 104.0 and 0 < o["TSLA"]["p_target"] < 1
+    assert o["AAPL"]["stop"] == 49.5 and o["AAPL"]["basis"] == "stop padrão de 1%"

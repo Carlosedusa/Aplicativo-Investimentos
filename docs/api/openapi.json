@@ -56,6 +56,43 @@
         }
       }
     },
+    "/odds": {
+      "post": {
+        "summary": "Odds",
+        "description": "Chance de chegar ao alvo antes do stop para cada ativo da lista (tarefa em segundo plano).",
+        "operationId": "odds_odds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OddsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/candles/{symbol}": {
       "get": {
         "summary": "Candles",
@@ -580,6 +617,79 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "OddsBody": {
+        "properties": {
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/OddsHit"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Hits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hits"
+        ],
+        "title": "OddsBody"
+      },
+      "OddsHit": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9.\\-]{0,9}$",
+            "title": "Symbol"
+          },
+          "price": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Price"
+          },
+          "or_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Or High"
+          },
+          "or_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Or Low"
+          },
+          "bar_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 76.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bar Index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "price"
+        ],
+        "title": "OddsHit"
       },
       "OrderBody": {
         "properties": {

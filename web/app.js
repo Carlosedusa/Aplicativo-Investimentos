@@ -124,14 +124,48 @@ function brainSvg() {
 }
 function scannerView() {
   const out = h("div", { class: "stack" });
+  const oddsOf = {};   // símbolo -> chance calculada
+  const fmt = (x) => String(x).replace(".", ",");
+  const row = (hit) => {
+    const o = oddsOf[hit.symbol];
+    const line2 = hit.at ? "rompeu às " + hit.at : "fechou em " + (hit.close_date || "—") + (hit.rsi != null ? " · RSI " + fmt(hit.rsi) : "");
+    const right = hit.pct_over != null ? h("span", { class: "num gain" }, "+" + fmt(hit.pct_over) + "%") : h("span", { class: "muted" }, (hit.setups || []).join(", "));
+    let chance;
+    if (!o) chance = h("span", { class: "muted small" }, "Calculando chance…");
+    else if (o.error) chance = h("span", { class: "muted small" }, "Chance indisponível");
+    else {
+      const p = o.p_target, good = p >= o.breakeven;
+      chance = h("span", { class: "chance " + (good ? "gain" : "loss") }, `Chance de chegar ao alvo: ${Math.round(p * 100)}%`,
+        h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%)`));
+    }
+    return h("button", { class: "hit", onclick: () => { selectSymbol(hit.symbol); } },
+      h("strong", null, hit.symbol), h("span", { class: "num" }, money(hit.price)),
+      h("span", { class: "muted" }, line2), right,
+      h("span", { class: "full" }, chance));
+  };
+  const ranked = () => {
+    const hits = rankHits(state.scan.hits).slice(0, 40);
+    const top = hits.slice(0, 15).sort((a, b) => ((oddsOf[b.symbol] || {}).p_target ?? -1) - ((oddsOf[a.symbol] || {}).p_target ?? -1));
+    return [...top, ...hits.slice(15)];
+  };
   const show = () => {
     const s = state.scan;
     if (!s) return;
     out.replaceChildren(
       h("p", { class: "muted" }, `${s.counts ? s.counts.scanned : s.scanned} gráficos analisados, ${s.hits.length} com o padrão.`),
-      ...rankHits(s.hits).slice(0, 40).map((hit) => h("button", { class: "hit", onclick: () => { selectSymbol(hit.symbol); } },
-        h("strong", null, hit.symbol), h("span", { class: "num" }, money(hit.price)),
-        h("span", { class: "muted" }, "rompeu às " + hit.at), h("span", { class: "num gain" }, "+" + String(hit.pct_over).replace(".", ",") + "%"))));
+      h("p", { class: "muted small" }, "A chance vem de 2.000 simulações com os últimos 60 dias do próprio ativo (stop na faixa inicial ou 1%, alvo 2R). Não é previsão. Os 15 primeiros são calculados e sobem pela chance."),
+      ...ranked().map(row));
+  };
+  const loadOdds = async () => {
+    const hits = rankHits(state.scan.hits).slice(0, 15);
+    if (!hits.length) return;
+    try {
+      const { task_id } = await api("/odds", { method: "POST", body: { hits: hits.map((x) => ({ symbol: x.symbol, price: x.price,
+        ...(x.or_high != null ? { or_high: x.or_high, or_low: x.or_low, bar_index: x.bar_index } : {}) })) } });
+      const r = await waitTask(task_id);
+      Object.assign(oddsOf, r.odds);
+    } catch (e) { hits.forEach((x) => { oddsOf[x.symbol] = { error: e.message }; }); }
+    if (state.tab === "scanner" && out.isConnected) show();
   };
   const run = async (mode, popular) => {
     const t0 = Date.now();
@@ -142,10 +176,11 @@ function scannerView() {
       const { task_id } = await api("/scan/" + mode, { method: "POST", body: { popular } });
       state.scan = await waitTask(task_id);
       show();
+      loadOdds();
     } catch (e) { out.replaceChildren(errorBox(e)); }
     finally { clearInterval(timer); }
   };
-  show();
+  if (state.scan) { show(); loadOdds(); }
   return h("section", { class: "stack" },
     h("h1", null, "Scanner"),
     h("p", { class: "muted" }, "Procura gráficos que cumprem uma regra. É uma lista para estudar, não para comprar."),

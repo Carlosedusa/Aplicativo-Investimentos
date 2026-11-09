@@ -74,6 +74,7 @@ test("scan to paper trade flow", async () => {
   await login(page);
   await page.getByRole("button", { name: "Rompimento da abertura (populares)" }).click();
   await page.getByText("com o padrão").waitFor();
+  await page.getByText(/Chance de chegar ao alvo: \d+%/).first().waitFor();
   await shot(page, "1-scanner");
   await page.getByRole("button", { name: /^TSLA/ }).click();
   await page.getByText("Entrada disparada").waitFor();

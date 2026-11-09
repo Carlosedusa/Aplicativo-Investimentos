@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .engine import EngineError, run_tool
+from .odds import real_odds
 from .routes_analysis import build_router as analysis_router
 from .paper.broker import PaperBroker
 from .paper.monitor import Monitor
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None, feed=None, clock=None) -> FastA
     app.state.broker, app.state.monitor = broker, monitor
     app.state.settings = settings
     app.state.tasks = TaskManager()
+    app.state.odds = real_odds
 
     def require_token(request: Request) -> None:
         header = request.headers.get("authorization", "")

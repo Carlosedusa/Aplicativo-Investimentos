@@ -58,3 +58,9 @@ class DemoFeed:
     def range(self, symbol: str, since: datetime):
         p = self.last(symbol)
         return p, p
+
+
+def demo_odds(symbol, entry, stop, target, k):
+    """Chance de demonstração, estável por símbolo (sem rede)."""
+    p = 0.2 + (sum(map(ord, symbol)) % 30) / 100
+    return {"p_target": round(p, 4), "p_stop": round(0.9 - p, 4), "p_neither": 0.1, "sessions": 59}
