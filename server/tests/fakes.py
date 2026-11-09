@@ -18,6 +18,10 @@ class FakeFeed:
             raise PriceError("Sem cotação de %s agora." % symbol)
         return self.prices[symbol]
 
+    def candles(self, symbol, limit=40):
+        p = self.prices[symbol]
+        return [{"t": 1_700_000_000 + 900 * i, "o": p, "h": p + 1, "l": p - 1, "c": p} for i in range(3)]
+
     def range(self, symbol, since):
         from app.paper.prices import PriceError
         if self.on_range:

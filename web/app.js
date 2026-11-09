@@ -161,6 +161,40 @@ function selectSymbol(sym) {
   go("ativo");
 }
 
+// ---------- gráfico de velas (15 min) com entrada, stop e alvo
+function candleChart(candles, { entry, stop, target }) {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (t, at, txt) => { const e = document.createElementNS(NS, t); for (const [k, v] of Object.entries(at)) e.setAttribute(k, v); if (txt) e.textContent = txt; return e; };
+  const W = 360, H = 220, PR = 54, PT = 8, PB = 8;
+  const levels = [entry, stop, target].filter((v) => typeof v === "number");
+  const lo = Math.min(...candles.map((c) => c.l), ...levels), hi = Math.max(...candles.map((c) => c.h), ...levels);
+  const pad = (hi - lo) * 0.06 || 1, min = lo - pad, max = hi + pad;
+  const y = (v) => PT + (H - PT - PB) * (1 - (v - min) / (max - min));
+  const step = (W - PR) / candles.length, bw = Math.max(2, step * 0.6);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": "Gráfico de velas de 15 minutos com entrada, stop e alvo" });
+  candles.forEach((c, i) => {
+    const x = step * i + step / 2, up = c.c >= c.o, cls = up ? "cu" : "cd";
+    svg.append(el("line", { x1: x, x2: x, y1: y(c.h), y2: y(c.l), class: cls }));
+    svg.append(el("rect", { x: x - bw / 2, width: bw, y: Math.min(y(c.o), y(c.c)), height: Math.max(1, Math.abs(y(c.o) - y(c.c))), class: cls + " body" }));
+  });
+  [[target, "Alvo", "lt"], [entry, "Entrada", "le"], [stop, "Stop", "ls"]].forEach(([v, name, cls]) => {
+    if (typeof v !== "number") return;
+    svg.append(el("line", { x1: 0, x2: W - PR, y1: y(v), y2: y(v), class: "lvl " + cls }));
+    svg.append(el("text", { x: W - PR + 3, y: y(v) - 2, class: "lbl " + cls }, name));
+    svg.append(el("text", { x: W - PR + 3, y: y(v) + 9, class: "lbl " + cls }, v.toFixed(2)));
+  });
+  return svg;
+}
+
+function chartCard(symbol, levels) {
+  const box = h("div", { class: "card stack" }, h("h2", null, "Gráfico · velas de 15 min"), h("p", { class: "muted" }, "Carregando gráfico…"));
+  api("/candles/" + symbol).then((d) => {
+    box.replaceChildren(h("h2", null, "Gráfico · velas de 15 min"), candleChart(d.candles, levels),
+      h("p", { class: "muted" }, "Linha verde: alvo (ganho). Linha vermelha: stop (perda). Linha escura: entrada."));
+  }).catch((e) => box.replaceChildren(h("h2", null, "Gráfico · velas de 15 min"), errorBox(e)));
+  return box;
+}
+
 // ---------- ativo
 function assetView() {
   if (!state.symbol) return emptyView("Escolha um ativo", "Rode o Scanner e toque em um ativo da lista.");
@@ -172,6 +206,7 @@ function assetView() {
     out.replaceChildren(
       h("div", { class: "card stack" }, h("div", { class: "row" }, h("strong", null, status), h("span", { class: "num" }, money(a.entry.trigger && a.entry.trigger.price))),
         h("p", { class: "muted" }, a.entry.reason)),
+      p && chartCard(state.symbol, { entry: p.entry, stop: p.stop, target: p.target }),
       p ? h("div", { class: "card" }, h("h2", null, "Plano de saída"), h("div", { class: "ladder" },
         h("div", { class: "step target" }, h("span", null, "Alvo (" + p.target_r + "R)"), h("span", { class: "num" }, money(p.target))),
         h("div", { class: "step entry" }, h("span", null, "Entrada"), h("span", { class: "num" }, money(p.entry))),
@@ -264,6 +299,7 @@ function ticketView() {
         h("div", { class: "row" }, h("span", { class: "muted" }, "Perda máxima no stop"), h("span", { class: "num" }, money(t.order.max_loss)))),
       ok ? h("div", { class: "ok" }, h("strong", null, "Aprovado pelo Risco"), ...t.risk.warnings.map((w) => h("p", { class: "muted" }, w)))
          : h("div", { class: "error", role: "alert" }, h("strong", null, "Bloqueado pelo Risco"), ...t.risk.reasons.map((r) => h("p", null, ptReason(r)))),
+      chartCard(t.order.symbol, { entry: t.order.entry, stop: t.order.stop, target: t.order.target }),
       confirmBtn);
   };
   const calc = async () => {

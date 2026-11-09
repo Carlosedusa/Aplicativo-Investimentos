@@ -61,3 +61,10 @@ a { color: var(--ink); text-decoration-color: var(--flat); text-underline-offset
   @keyframes trace { 0% { stroke-dashoffset: 220; opacity: .3; } 50% { stroke-dashoffset: 0; opacity: 1; stroke: var(--gain); } 100% { stroke-dashoffset: -220; opacity: .3; } }
   @keyframes fire { 0%, 100% { transform: scale(.7); opacity: .3; } 50% { transform: scale(1.6); opacity: 1; } }
 }
+.chart { width: 100%; height: auto; display: block; }
+.chart .cu { stroke: var(--gain); fill: var(--gain); } .chart .cd { stroke: var(--loss); fill: var(--loss); }
+.chart line.cu, .chart line.cd { stroke-width: 1; } .chart .body { stroke-width: 0; }
+.chart .lvl { stroke-width: 1.5; stroke-dasharray: 5 3; }
+.chart .lt, .chart .lbl.lt { stroke: var(--gain); fill: var(--gain); } .chart .ls, .chart .lbl.ls { stroke: var(--loss); fill: var(--loss); }
+.chart .le, .chart .lbl.le { stroke: var(--ink); fill: var(--ink); }
+.chart text { stroke: none; font-size: 9px; font-weight: 700; }

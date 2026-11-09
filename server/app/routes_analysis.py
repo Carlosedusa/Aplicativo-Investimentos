@@ -66,6 +66,13 @@ def build_router(require_token) -> APIRouter:
 
         return {"task_id": request.app.state.tasks.submit(job)}
 
+    @r.get("/candles/{symbol}")
+    def candles(symbol: str, request: Request):
+        """Velas de 15 minutos para o gráfico."""
+        if not re.match(SYMBOL, symbol):
+            raise HTTPException(422, "Símbolo inválido.")
+        return {"symbol": symbol.upper(), "interval": "15m", "candles": request.app.state.feed.candles(symbol.upper())}
+
     @r.get("/watchlist")
     def watchlist(request: Request):
         path = request.app.state.settings.workdir / "trader" / "watchlist.json"
