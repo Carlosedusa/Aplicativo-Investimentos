@@ -163,3 +163,17 @@ def test_slow_quote_does_not_hold_the_book_lock(env):
     release.set()
     t.join(3)
     assert done, "positions() ficou preso esperando a cotação"
+
+
+def test_swing_position_survives_overnight_and_exits_on_deadline(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from app.paper.broker import PaperBroker
+    from tests.fakes import FakeFeed
+    t = {"now": datetime(2026, 11, 9, 20, 0, tzinfo=timezone.utc)}
+    feed = FakeFeed(30.0); feed.prices["PETR4"] = 30.0
+    b = PaperBroker(tmp_path / "p.db", feed, lambda: t["now"], 5000)
+    b.place_bracket("a", "PETR4", 10, 28.0, 36.0, horizon_days=3)
+    t["now"] += timedelta(days=1); assert b.tick() == [] and len(b.positions()) == 1      # dormiu posicionado
+    t["now"] += timedelta(days=3)                                                          # 3 dias úteis depois
+    closed = b.tick()
+    assert len(closed) == 1 and closed[0].reason == "prazo"

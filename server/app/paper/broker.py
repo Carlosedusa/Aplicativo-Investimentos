@@ -14,6 +14,19 @@ NY = ZoneInfo("America/New_York")
 FLAT_BY = time(15, 55)
 
 
+SP = ZoneInfo("America/Sao_Paulo")
+
+
+def _weekdays_between(a, b) -> int:
+    """Dias úteis (seg-sex) de a até b, sem contar a. Feriados não são descontados (prazo é um teto)."""
+    n, d = 0, a
+    while d < b:
+        d = d.fromordinal(d.toordinal() + 1)
+        if d.weekday() < 5:
+            n += 1
+    return n
+
+
 class PaperError(Exception):
     pass
 
@@ -27,6 +40,7 @@ class Position:
     stop: float
     target: float
     opened_at: str
+    horizon_days: int | None = None  # swing: pregões até encerrar no prazo; None = day trade (fecha 15:55 ET)
 
 
 @dataclass
@@ -40,7 +54,7 @@ class ClosedTrade:
     opened_at: str
     closed_at: str
     exit_price: float
-    reason: str  # "stop" | "target" | "eod"
+    reason: str  # "stop" | "target" | "eod" | "prazo"
     pnl: float
 
 
@@ -54,7 +68,7 @@ CREATE TABLE IF NOT EXISTS positions (
   status TEXT NOT NULL DEFAULT 'open',
   exit_price REAL, reason TEXT, closed_at TEXT, pnl REAL
 )"""
-COLS = "id, symbol, qty, entry, stop, target, opened_at"
+COLS = "id, symbol, qty, entry, stop, target, opened_at, horizon_days"
 
 
 class PaperBroker:
@@ -65,6 +79,10 @@ class PaperBroker:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)
         self._db.execute(SCHEMA)
+        try:  # bancos antigos ganham a coluna nova sem perder dados
+            self._db.execute("ALTER TABLE positions ADD COLUMN horizon_days INTEGER")
+        except sqlite3.OperationalError:
+            pass
         self._db.commit()
         self._lock = threading.RLock()
         self.feed, self.clock, self.starting_cash = feed, clock, starting_cash
@@ -80,7 +98,7 @@ class PaperBroker:
         return round(self.starting_cash - spent + back, 2)
 
     def place_bracket(self, client_order_id: str, symbol: str, qty: int,
-                      stop: float, target: float) -> Position:
+                      stop: float, target: float, horizon_days: int | None = None) -> Position:
         with self._lock:
             row = self._db.execute("SELECT %s FROM positions WHERE client_order_id=?" % COLS,
                                    (client_order_id,)).fetchone()
@@ -97,10 +115,11 @@ class PaperBroker:
                 raise PaperError("Caixa virtual insuficiente: precisa de %.2f e há %.2f." % (cost, self.cash()))
             now = self._now().isoformat()
             cur = self._db.execute(
-                "INSERT INTO positions (client_order_id, symbol, qty, entry, stop, target, opened_at, checked_at) "
-                "VALUES (?,?,?,?,?,?,?,?)", (client_order_id, symbol, qty, price, stop, target, now, now))
+                "INSERT INTO positions (client_order_id, symbol, qty, entry, stop, target, opened_at, checked_at, "
+                "horizon_days) VALUES (?,?,?,?,?,?,?,?,?)",
+                (client_order_id, symbol, qty, price, stop, target, now, now, horizon_days))
             self._db.commit()
-            return Position(cur.lastrowid, symbol, qty, price, stop, target, now)
+            return Position(cur.lastrowid, symbol, qty, price, stop, target, now, horizon_days)
 
     def find(self, client_order_id: str) -> Position | None:
         with self._lock:
@@ -139,6 +158,10 @@ class PaperBroker:
                     exit_price, reason = pos.stop, "stop"
                 elif high >= pos.target:
                     exit_price, reason = pos.target, "target"
+                elif pos.horizon_days is not None:  # swing: segura de um dia para o outro, sai no prazo
+                    if _weekdays_between(datetime.fromisoformat(pos.opened_at).astimezone(SP).date(),
+                                         now.astimezone(SP).date()) >= pos.horizon_days:
+                        exit_price, reason = float(self.feed.last(pos.symbol)), "prazo"
                 else:
                     opened_ny = datetime.fromisoformat(pos.opened_at).astimezone(NY)
                     if now_ny.date() > opened_ny.date() or now_ny.time() >= FLAT_BY:

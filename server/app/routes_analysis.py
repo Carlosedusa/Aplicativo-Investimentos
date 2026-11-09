@@ -87,11 +87,12 @@ def build_router(require_token) -> APIRouter:
         return {"task_id": request.app.state.tasks.submit(lambda: compute_many(fn, hits))}
 
     @r.get("/candles/{symbol}")
-    def candles(symbol: str, request: Request):
-        """Velas de 5 minutos para o gráfico."""
+    def candles(symbol: str, request: Request, interval: Literal["5m", "1d"] = "5m"):
+        """Velas para o gráfico (5 min ou diárias)."""
         if not re.match(SYMBOL, symbol):
             raise HTTPException(422, "Símbolo inválido.")
-        return {"symbol": symbol.upper(), "interval": "5m", "candles": request.app.state.feed.candles(symbol.upper())}
+        return {"symbol": symbol.upper(), "interval": interval,
+                "candles": request.app.state.feed.candles(symbol.upper(), interval)}
 
     @r.get("/watchlist")
     def watchlist(request: Request):

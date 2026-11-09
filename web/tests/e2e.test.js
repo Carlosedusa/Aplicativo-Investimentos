@@ -50,7 +50,7 @@ const shot = async (page, name) => { if (process.env.SHOT) await page.screenshot
 async function login(page) {
   await page.getByLabel("Token").fill(TOKEN);
   await page.getByRole("button", { name: "Entrar" }).click();
-  await page.getByRole("heading", { name: "Scanner" }).waitFor();
+  await page.getByRole("heading", { name: /^Scanner/ }).waitFor();
 }
 
 test("wrong token shows a message", async () => {
@@ -63,51 +63,52 @@ test("wrong token shows a message", async () => {
 test("risk banner is visible on every screen", async () => {
   const page = await newPage();
   await login(page);
-  for (const tab of ["Scanner", "Ativo", "Simular", "Ordem", "Carteira"]) {
+  for (const tab of ["Scanner", "Ativo", "Ordem", "Carteira"]) {
     await page.locator("#tabs").getByRole("button", { name: tab }).click();
-    assert.ok(await page.getByText("a maioria de quem faz day trade perde dinheiro").isVisible(), tab);
+    assert.ok(await page.getByText("a maioria de quem opera na bolsa perde dinheiro").isVisible(), tab);
   }
 });
 
-test("scan to paper trade flow", async () => {
+async function scan(page) {
+  await page.getByRole("button", { name: "Varrer o Ibovespa" }).click();
+  await page.getByText("com sinal").waitFor();
+  await page.getByText(/Chance de chegar ao alvo: \d+%/).first().waitFor();
+}
+
+test("swing scan to paper trade flow", async () => {
   const page = await newPage();
   await login(page);
-  await page.getByRole("button", { name: "Rompimento da abertura (populares)" }).click();
-  await page.getByText("com o padrão").waitFor();
-  await page.getByText(/Chance de chegar ao alvo: \d+%/).first().waitFor();
+  await scan(page);
   await shot(page, "1-scanner");
-  await page.getByRole("button", { name: /^TSLA/ }).click();
-  await page.getByText("Entrada disparada").waitFor();
-  await page.getByText("Plano de saída").waitFor();
-  await page.getByText("Tesla-SpaceX Merger Mania").waitFor();
+  const first = page.locator("button.hit").first();
+  const sym = (await first.locator("strong").innerText()).trim();
+  await first.click();
+  await page.getByText(/Plano de saída/).waitFor();
+  await page.getByText("Chance (simulação do último ano)").waitFor();
   await shot(page, "2-ativo");
-  await page.getByRole("button", { name: "Simular chances" }).click();
-  await page.getByText("10.000 sessões simuladas").waitFor();
-  await shot(page, "3-simular");
   await page.getByRole("button", { name: "Montar ordem de teste" }).click();
   await page.getByRole("button", { name: "Calcular tamanho" }).click();
   await page.getByText("Aprovado pelo Risco").waitFor();
-  await page.getByText("Comprar 8 TSLA").waitFor();
-  await shot(page, "4-ordem");
+  await shot(page, "3-ordem");
   await page.getByRole("button", { name: "Confirmar ordem de teste" }).click();
   await page.getByText("Ordem de teste enviada.").waitFor();
-  await page.getByText("8 TSLA").waitFor();
-  await page.locator("svg.chart").waitFor(); // gráfico da posição na carteira
-  await page.getByText("Atualiza a cada 1 s").waitFor();
-  await shot(page, "5-carteira");
+  await page.getByText(new RegExp(sym)).first().waitFor();
+  await page.locator("svg.chart").waitFor();
+  await shot(page, "4-carteira");
   const r = await fetch(`http://127.0.0.1:${port}/paper/positions`, { headers: { Authorization: "Bearer " + TOKEN } });
   const pos = await r.json();
   assert.equal(pos.length, 1);
-  assert.equal(pos[0].qty, 8);
+  assert.equal(pos[0].symbol, sym);
+  assert.equal(pos[0].horizon_days, 10);
 });
 
 test("blocked order cannot be confirmed", async () => {
   const page = await newPage();
   await login(page);
-  await page.route("**/risk/check*", (route) => route.fulfill({ json: { verdict: "BLOCK", reasons: ["perda máxima acima do limite"], warnings: [] } }));
-  await page.getByRole("button", { name: "Rompimento da abertura (populares)" }).click();
-  await page.getByRole("button", { name: /^TSLA/ }).click();
-  await page.getByText("Plano de saída").waitFor();
+  await page.route("**/swing/order/preview", (route) => route.fulfill({ json: { verdict: "BLOCK", reasons: ["Bolsa fechada agora."], warnings: [], order: null } }));
+  await scan(page);
+  await page.locator("button.hit").first().click();
+  await page.getByText(/Plano de saída/).waitFor();
   await page.locator("#tabs").getByRole("button", { name: "Ordem" }).click();
   await page.getByRole("button", { name: "Calcular tamanho" }).click();
   await page.getByText("Bloqueado pelo Risco").waitFor();
@@ -117,8 +118,8 @@ test("blocked order cannot be confirmed", async () => {
 test("chart zooms and pans", async () => {
   const page = await newPage();
   await login(page);
-  await page.getByRole("button", { name: "Rompimento da abertura (populares)" }).click();
-  await page.getByRole("button", { name: /^TSLA/ }).click();
+  await scan(page);
+  await page.locator("button.hit").first().click();
   await page.locator("svg.chart").waitFor();
   const svg = page.locator("svg.chart");
   await page.waitForFunction(() => document.querySelectorAll("svg.chart rect.body").length > 0);

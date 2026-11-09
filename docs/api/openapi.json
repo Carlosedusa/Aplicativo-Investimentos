@@ -96,7 +96,7 @@
     "/candles/{symbol}": {
       "get": {
         "summary": "Candles",
-        "description": "Velas de 5 minutos para o gráfico.",
+        "description": "Velas para o gráfico (5 min ou diárias).",
         "operationId": "candles_candles__symbol__get",
         "parameters": [
           {
@@ -106,6 +106,20 @@
             "schema": {
               "type": "string",
               "title": "Symbol"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "5m",
+                "1d"
+              ],
+              "type": "string",
+              "default": "5m",
+              "title": "Interval"
             }
           }
         ],
@@ -405,7 +419,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/OrderBody"
+                "$ref": "#/components/schemas/app__routes_paper__OrderBody"
               }
             }
           },
@@ -475,6 +489,147 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swing/market": {
+      "get": {
+        "summary": "Market",
+        "operationId": "market_swing_market_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swing/scan": {
+      "post": {
+        "summary": "Scan",
+        "operationId": "scan_swing_scan_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swing/asset/{symbol}": {
+      "get": {
+        "summary": "Asset",
+        "operationId": "asset_swing_asset__symbol__get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swing/order/preview": {
+      "post": {
+        "summary": "Preview",
+        "operationId": "preview_swing_order_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__routes_swing__OrderBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swing/orders": {
+      "post": {
+        "summary": "Place",
+        "operationId": "place_swing_orders_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__routes_swing__OrderBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -691,57 +846,6 @@
         ],
         "title": "OddsHit"
       },
-      "OrderBody": {
-        "properties": {
-          "client_order_id": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_.\\-]+$",
-            "title": "Client Order Id"
-          },
-          "symbol": {
-            "type": "string",
-            "pattern": "^[A-Za-z][A-Za-z0-9.\\-]{0,9}$",
-            "title": "Symbol"
-          },
-          "qty": {
-            "type": "integer",
-            "maximum": 1000000.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Qty"
-          },
-          "stop": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Stop"
-          },
-          "target": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Target"
-          },
-          "confirm": {
-            "type": "boolean",
-            "title": "Confirm",
-            "default": false
-          },
-          "train": {
-            "type": "boolean",
-            "title": "Train",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "client_order_id",
-          "symbol",
-          "qty",
-          "stop",
-          "target"
-        ],
-        "title": "OrderBody"
-      },
       "ScanBody": {
         "properties": {
           "popular": {
@@ -861,6 +965,96 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "app__routes_paper__OrderBody": {
+        "properties": {
+          "client_order_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.\\-]+$",
+            "title": "Client Order Id"
+          },
+          "symbol": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9.\\-]{0,9}$",
+            "title": "Symbol"
+          },
+          "qty": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Qty"
+          },
+          "stop": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Stop"
+          },
+          "target": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Target"
+          },
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          },
+          "train": {
+            "type": "boolean",
+            "title": "Train",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_order_id",
+          "symbol",
+          "qty",
+          "stop",
+          "target"
+        ],
+        "title": "OrderBody"
+      },
+      "app__routes_swing__OrderBody": {
+        "properties": {
+          "client_order_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.\\-]+$",
+            "title": "Client Order Id"
+          },
+          "symbol": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{4}\\d{1,2}$",
+            "title": "Symbol"
+          },
+          "max_loss": {
+            "type": "number",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Loss"
+          },
+          "train": {
+            "type": "boolean",
+            "title": "Train",
+            "default": false
+          },
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_order_id",
+          "symbol",
+          "max_loss"
+        ],
+        "title": "OrderBody"
       }
     }
   }

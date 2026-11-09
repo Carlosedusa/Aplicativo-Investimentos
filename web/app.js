@@ -1,12 +1,12 @@
 "use strict";
 
-const TABS = [["scanner", "Scanner"], ["ativo", "Ativo"], ["simular", "Simular"], ["ticket", "Ordem"], ["carteira", "Carteira"]];
-const state = { tab: "scanner", symbol: null, scan: null, asset: null, tm: null, ticket: null, wallet: null, toast: null };
+const TABS = [["scanner", "Scanner"], ["ativo", "Ativo"], ["ticket", "Ordem"], ["carteira", "Carteira"]];
+const state = { tab: "scanner", symbol: null, scan: null, asset: null, ticket: null, wallet: null, toast: null };
 const view = document.getElementById("view");
 const tabsEl = document.getElementById("tabs");
 
 // ---------- utilidades
-const usd = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD" });
+const usd = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const pct = (x) => (x * 100).toFixed(1).replace(".", ",") + "%";
 const money = (n) => (n == null ? "—" : usd.format(n));
 function h(tag, attrs, ...kids) {
@@ -83,13 +83,6 @@ function loginView(msg) {
 // ---------- scanner
 const SETUPS = { breakout_20d: "Rompeu máxima de 20 dias", bull_flag: "Bandeira de alta", reclaim_ma20: "Retomou a média de 20",
   oversold: "Sobrevendida (RSI<30)", oversold_bounce: "Rebote após sobrevenda", orb: "Rompimento da abertura" };
-// Maior oportunidade primeiro: no rompimento, quanto acima da faixa (pct_over); no pré-mercado, mantém a ordem do servidor.
-function rankHits(hits) {
-  const score = (x) => (typeof x.pct_over === "number" ? x.pct_over : null);
-  if (!hits.some((x) => score(x) != null)) return hits;
-  return [...hits].sort((a, b) => (score(b) ?? -Infinity) - (score(a) ?? -Infinity) || a.symbol.localeCompare(b.symbol));
-}
-
 // Modo treino: ordens de teste ignoram o horário do mercado (as outras regras de Risco continuam).
 const trainOn = () => store.get("train", "1") === "1";
 function trainBox() {
@@ -97,31 +90,14 @@ function trainBox() {
   box.checked = trainOn();
   box.addEventListener("change", () => store.set("train", box.checked ? "1" : "0"));
   const status = h("p", { class: "muted" }, "Verificando o mercado…");
-  api("/market/status").then((m) => {
-    status.textContent = m.open ? "Mercado aberto agora: entradas liberadas."
-      : "Mercado fechado agora em Nova York (abre 10:30 em Brasília, seg. a sex.). Com o Modo treino ligado, você pode simular ordens mesmo assim.";
+  api("/swing/market").then((m) => {
+    status.textContent = m.open ? "Bolsa aberta agora: entradas liberadas."
+      : m.reasons[0] + " Com o Modo treino ligado, você pode simular ordens mesmo assim.";
   }).catch(() => { status.textContent = ""; });
   return h("div", { class: "card stack" }, status,
-    h("label", { style: "display:flex;gap:8px;align-items:center;font-size:14px" }, box, "Modo treino: ignorar o horário do mercado"));
+    h("label", { style: "display:flex;gap:8px;align-items:center;font-size:14px" }, box, "Modo treino: ignorar o horário da bolsa"));
 }
-const REASONS = {
-  window: "Fora do horário de entrada do mercado (Nova York). Ligue o Modo treino para simular.",
-  loss: "A perda no stop passa do seu limite por operação. Aumente a Perda máxima ou reduza a quantidade.",
-  "reward:risk": "O ganho no alvo é pequeno demais perto do risco no stop (abaixo do mínimo configurado).",
-  cash: "Falta caixa: a compra deixaria o saldo abaixo da reserva ou exigiria dinheiro emprestado.",
-  position: "A posição ficaria grande demais para a conta (limite por ativo).",
-  size: "Valor da ordem fora do mínimo ou do máximo permitido.",
-  "daily loss": "A soma das perdas possíveis do dia passaria do limite diário.",
-  trades: "Você já atingiu o limite de operações de hoje.",
-  "daily limit": "Você já atingiu o limite de ordens de hoje.",
-  duplicate: "Já existe uma ordem igual a esta hoje.",
-  stop: "Stop ausente ou do lado errado do preço de entrada.",
-  target: "Alvo do lado errado do preço de entrada.",
-  price: "Sem preço atual para calcular a ordem.",
-  blocked: "Este ativo está na sua lista de bloqueados.",
-};
-// A chance de chegar ao alvo (Scanner) NÃO entra no Risco: o Risco só confere limites de dinheiro, horário e plano.
-const ptReason = (r) => { const k = String(r).split(":")[0]; return REASONS[k] ? [REASONS[k], h("span", { class: "muted small" }, " (" + r + ")")] : r; };
+const ptReason = (r) => r;
 
 function brainSvg() {
   const NS = "http://www.w3.org/2000/svg";
@@ -143,95 +119,55 @@ function brainSvg() {
 }
 function scannerView() {
   const out = h("div", { class: "stack" });
-  const oddsOf = {};   // símbolo -> chance calculada
-  const pending = new Set(); // símbolos ainda sendo calculados
   const fmt = (x) => String(x).replace(".", ",");
-  const row = (hit) => {
-    const o = oddsOf[hit.symbol];
-    const line2 = hit.at ? "rompeu às " + hit.at : "fechou em " + (hit.close_date || "—") + (hit.rsi != null ? " · RSI " + fmt(hit.rsi) : "");
-    const right = hit.pct_over != null ? h("span", { class: "num gain" }, "+" + fmt(hit.pct_over) + "%") : h("span", { class: "muted" }, (hit.setups || []).map((s) => SETUPS[s] || s).join(", "));
-    let chance;
-    if (!o) chance = pending.has(hit.symbol) ? h("span", { class: "muted small" }, "Calculando chance…") : h("span", { class: "muted small" }, "Toque para ver o plano e simular");
-    else if (o.error) chance = h("span", { class: "muted small", title: o.error }, "Chance indisponível: " + String(o.error).slice(0, 80));
-    else {
-      const p = o.p_target, good = p >= o.breakeven;
-      chance = h("span", { class: "chance " + (good ? "gain" : "loss") }, `Chance de chegar ao alvo: ${Math.round(p * 100)}%`,
-        h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%)`));
-    }
-    return h("button", { class: "hit", onclick: () => { selectSymbol(hit.symbol); } },
-      h("strong", null, hit.symbol), h("span", { class: "num" }, money(hit.price)),
-      h("span", { class: "muted" }, line2), right,
-      h("span", { class: "full" }, chance));
-  };
-  const ranked = () => {
-    const hits = rankHits(state.scan.hits).slice(0, 40);
-    const top = hits.slice(0, 15).sort((a, b) => ((oddsOf[b.symbol] || {}).p_target ?? -1) - ((oddsOf[a.symbol] || {}).p_target ?? -1));
-    return [...top, ...hits.slice(15)];
-  };
   const show = () => {
     const s = state.scan;
     if (!s) return;
     out.replaceChildren(
-      h("p", { class: "muted" }, `${s.counts ? s.counts.scanned : s.scanned} gráficos analisados, ${s.hits.length} com o padrão.`),
-      h("p", { class: "muted small" }, "A chance vem de 2.000 simulações com os últimos 60 dias do próprio ativo (stop na faixa inicial ou 1%, alvo 2R). Não é previsão. Os 15 primeiros são calculados e sobem pela chance."),
-      ...ranked().map(row));
+      h("p", { class: "muted" }, `${s.scanned} ações analisadas${s.failed ? " (" + s.failed + " sem dados)" : ""}, ${s.hits.length} com sinal. Ordenadas pelo retorno esperado.`),
+      h("p", { class: "muted small" }, "Chance = 2.000 simulações com o último ano do próprio ativo, operação de até 10 pregões, stop em 1,5 ATR (volatilidade diária) e alvo em 2R. Não é previsão."),
+      ...s.hits.map((x) => {
+        const o = x.odds, good = o.p_target >= o.breakeven;
+        return h("button", { class: "hit", onclick: () => selectSymbol(x.symbol) },
+          h("strong", null, x.symbol), h("span", { class: "num" }, money(x.price)),
+          h("span", { class: "muted" }, x.setups.map((t) => SETUPS[t] || t).join(", ")),
+          h("span", { class: "num " + (o.avg_r >= 0 ? "gain" : "loss") }, (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R esperado"),
+          h("span", { class: "full" }, h("span", { class: "chance " + (good ? "gain" : "loss") }, `Chance de chegar ao alvo: ${Math.round(o.p_target * 100)}%`,
+            h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%) · stop −${fmt(x.plan.risk_pct)}% · alvo +${fmt(x.plan.target_pct)}%`))));
+      }));
   };
-  // Calcula em lotes de 3, dois lotes ao mesmo tempo: a tela vai preenchendo e um ativo lento não trava os outros.
-  const loadOdds = async () => {
-    const hits = rankHits(state.scan.hits).slice(0, 15);
-    hits.forEach((x) => { if (!oddsOf[x.symbol]) pending.add(x.symbol); });
-    const batches = [];
-    for (let i = 0; i < hits.length; i += 3) batches.push(hits.slice(i, i + 3).filter((x) => pending.has(x.symbol)));
-    const refresh = () => { if (state.tab === "scanner" && out.isConnected) show(); };
-    const doBatch = async (b) => {
-      if (!b.length) return;
-      try {
-        const { task_id } = await api("/odds", { method: "POST", body: { hits: b.map((x) => ({ symbol: x.symbol, price: x.price,
-          ...(x.or_high != null ? { or_high: x.or_high, or_low: x.or_low, bar_index: x.bar_index } : {}) })) } });
-        Object.assign(oddsOf, (await waitTask(task_id, 90)).odds);
-      } catch (e) { b.forEach((x) => { oddsOf[x.symbol] = { error: e.message }; }); }
-      b.forEach((x) => pending.delete(x.symbol));
-      refresh();
-    };
-    const lane = async () => { while (batches.length) await doBatch(batches.shift()); };
-    refresh();
-    await Promise.all([lane(), lane()]);
-  };
-  const run = async (mode, popular) => {
+  const run = async () => {
     const t0 = Date.now();
-    const msg = h("p", { class: "spinner", role: "status" }, "Varrendo o mercado…");
+    const msg = h("p", { class: "spinner", role: "status" }, "Varrendo o Ibovespa…");
     out.replaceChildren(brainSvg(), msg);
-    const timer = setInterval(() => { msg.textContent = `Varrendo o mercado… ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
+    const timer = setInterval(() => { msg.textContent = `Varrendo o Ibovespa… ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
     try {
-      const { task_id } = await api("/scan/" + mode, { method: "POST", body: { popular } });
+      const { task_id } = await api("/swing/scan", { method: "POST" });
       state.scan = await waitTask(task_id);
       show();
-      loadOdds();
     } catch (e) { out.replaceChildren(errorBox(e)); }
     finally { clearInterval(timer); }
   };
-  if (state.scan) { show(); loadOdds(); }
+  show();
   return h("section", { class: "stack" },
-    h("h1", null, "Scanner"),
-    h("p", { class: "muted" }, "Procura gráficos que cumprem uma regra. É uma lista para estudar, não para comprar."),
+    h("h1", null, "Scanner · Ibovespa"),
+    h("p", { class: "muted" }, "Swing trade: operações de dias (até 10 pregões) em ações da B3. É uma lista para estudar, não para comprar."),
     trainBox(),
-    h("button", { onclick: () => run("daily", true) }, "Pré-mercado (ações populares, rápido)"),
-    h("button", { class: "ghost", onclick: () => run("orb", true) }, "Rompimento da abertura (populares)"),
-    h("button", { class: "ghost", onclick: () => run("daily", false) }, "Pré-mercado completo (lento, vários minutos)"),
+    h("button", { onclick: run }, "Varrer o Ibovespa"),
     out);
 }
 
 function selectSymbol(sym) {
-  state.symbol = sym; state.asset = null; state.tm = null; state.ticket = null;
+  state.symbol = sym; state.asset = null; state.ticket = null;
   go("ativo");
 }
 
 // ---------- gráfico de velas (5 min) com entrada, stop e alvo; zoom e arrasto
-function chartCard(symbol, levels, title) {
+function chartCard(symbol, levels, title, interval = "5m") {
   const NS = "http://www.w3.org/2000/svg";
   const el = (t, at, txt) => { const e = document.createElementNS(NS, t); for (const [k, v] of Object.entries(at)) e.setAttribute(k, v); if (txt != null) e.textContent = txt; return e; };
   const W = 360, H = 260, PR = 54, PT = 8, PB = 8, PW = W - PR, PH = H - PT - PB;
-  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": "Gráfico de velas de 5 minutos com entrada, stop e alvo" });
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": interval === "1d" ? "Gráfico de velas diárias com entrada, stop e alvo" : "Gráfico de velas de 5 minutos com entrada, stop e alvo" });
   const stamp = h("p", { class: "muted" }, "Carregando gráfico…");
   const msg = h("div");
   let candles = [], view = null; // view = {x0,x1,y0,y1} em coordenadas de dados (x = nº da vela, y = preço)
@@ -304,7 +240,7 @@ function chartCard(symbol, levels, title) {
     btn("+", "Aproximar", () => zoom(0.7, PW / 2, H / 2)), btn("−", "Afastar", () => zoom(1 / 0.7, PW / 2, H / 2)),
     btn("↕+", "Ampliar só o preço", () => zoom(0.7, PW / 2, H / 2, "y")), btn("↕−", "Reduzir só o preço", () => zoom(1 / 0.7, PW / 2, H / 2, "y")),
     btn("⟲", "Voltar ao padrão", () => { fit(); draw(); }));
-  const box = h("div", { class: "card stack" }, h("h2", null, title || "Gráfico · velas de 5 min"), tools, msg, svg, stamp,
+  const box = h("div", { class: "card stack" }, h("h2", null, title || (interval === "1d" ? "Gráfico · velas diárias" : "Gráfico · velas de 5 min")), tools, msg, svg, stamp,
     h("p", { class: "muted small" }, "Arraste para mover (tempo e preço). Roda do mouse ou pinça dá zoom; Shift + roda amplia só o preço. Toque duplo volta ao padrão."));
 
   let timer = null, started = false;
@@ -314,109 +250,68 @@ function chartCard(symbol, levels, title) {
     if (busy) return; // não empilha pedidos se a rede estiver lenta
     busy = true;
     try {
-      const d = await api("/candles/" + symbol);
+      const d = await api("/candles/" + symbol + "?interval=" + interval);
       const wasEnd = view && view.x1 >= candles.length; // se estava no fim, acompanha as velas novas
       const shift = d.candles.length - candles.length;
       candles = d.candles; msg.replaceChildren();
       if (view && wasEnd && shift > 0) { view.x0 += shift; view.x1 += shift; }
       draw();
       const last = candles[candles.length - 1];
-      stamp.textContent = `Atualiza a cada 1 s · último preço ${money(last && last.c)} · ${new Date().toLocaleTimeString("pt-BR")}`;
+      stamp.textContent = `Atualiza a cada ${interval === "1d" ? 10 : 1} s · último preço ${money(last && last.c)} · ${new Date().toLocaleTimeString("pt-BR")}`;
     } catch (e) { if (!candles.length) msg.replaceChildren(errorBox(e)); else stamp.textContent = "Sem atualização agora; tentando de novo…"; }
     finally { busy = false; }
   };
-  setTimeout(() => { started = true; load(); timer = setInterval(load, 1000); }, 0);
+  setTimeout(() => { started = true; load(); timer = setInterval(load, interval === "1d" ? 10000 : 1000); }, 0);
   return box;
 }
 
 // ---------- ativo
 function assetView() {
-  if (!state.symbol) return emptyView("Escolha um ativo", "Rode o Scanner e toque em um ativo da lista.");
+  if (!state.symbol) return emptyView("Escolha uma ação", "Rode o Scanner e toque em uma ação da lista.");
   const out = h("div", { class: "stack" }, h("p", { class: "spinner" }, "Carregando " + state.symbol + "…"));
+  const fmt = (x) => String(x).replace(".", ",");
   const draw = () => {
-    const a = state.asset;
-    const status = a.entry.status === "triggered" ? "Entrada disparada" : a.entry.status === "waiting" ? "Esperando o gatilho" : a.entry.status;
-    const p = a.plan;
+    const a = state.asset, p = a.plan, o = a.odds;
     out.replaceChildren(
-      h("div", { class: "card stack" }, h("div", { class: "row" }, h("strong", null, status), h("span", { class: "num" }, money(a.entry.trigger && a.entry.trigger.price))),
-        h("p", { class: "muted" }, a.entry.reason)),
-      p && chartCard(state.symbol, { entry: p.entry, stop: p.stop, target: p.target }),
-      p ? h("div", { class: "card" }, h("h2", null, "Plano de saída"), h("div", { class: "ladder" },
-        h("div", { class: "step target" }, h("span", null, "Alvo (" + p.target_r + "R)"), h("span", { class: "num" }, money(p.target))),
+      h("div", { class: "card stack" }, h("div", { class: "row" }, h("strong", null, a.setups.length ? a.setups.map((t) => SETUPS[t] || t).join(", ") : "Sem sinal agora"), h("span", { class: "num" }, money(a.price))),
+        h("p", { class: "muted" }, `RSI ${fmt(a.rsi)} · ATR (variação diária típica) ${money(a.atr)} · liquidez média ${money(a.turnover)}/dia`)),
+      p ? chartCard(state.symbol, { entry: p.entry, stop: p.stop, target: p.target }, "Gráfico · velas diárias", "1d") : null,
+      p ? h("div", { class: "card" }, h("h2", null, "Plano de saída (swing, até " + p.horizon_days + " pregões)"), h("div", { class: "ladder" },
+        h("div", { class: "step target" }, h("span", null, `Alvo (${p.target_r}R, +${fmt(p.target_pct)}%)`), h("span", { class: "num" }, money(p.target))),
         h("div", { class: "step entry" }, h("span", null, "Entrada"), h("span", { class: "num" }, money(p.entry))),
-        h("div", { class: "step stop" }, h("span", null, "Stop (" + ({ or_mid: "meio da faixa inicial", or_low: "mínima da faixa inicial" }[p.stop_rule] || p.stop_rule) + ")"), h("span", { class: "num" }, money(p.stop)))),
-        h("p", { class: "muted" }, `Risco de ${money(p.risk_per_share)} por ação. Sair até as ${p.flat_by}.`)) : h("div", { class: "error" }, a.planError || "Sem plano de saída."),
-      h("div", { class: "card" }, h("h2", null, "Notícias"),
-        a.news.items.length ? h("ul", { class: "plain" }, a.news.items.map((n) => h("li", null, h("a", { href: n.link || "#", target: "_blank", rel: "noopener" }, n.title), h("p", { class: "muted" }, n.source)))) : h("p", { class: "muted" }, "Nenhuma notícia nova nas últimas horas.")),
-      p && h("button", { onclick: () => go("simular") }, "Simular chances"));
+        h("div", { class: "step stop" }, h("span", null, `Stop (1,5 ATR, −${fmt(p.risk_pct)}%)`), h("span", { class: "num" }, money(p.stop)))),
+        h("p", { class: "muted" }, `Risco de ${money(p.risk)} por ação. Se não bater stop nem alvo, a ordem de teste sai ao fim de ${p.horizon_days} pregões.`)) : h("div", { class: "error" }, "Sem plano: volatilidade não permite calcular stop e alvo."),
+      o && h("div", { class: "card stack" }, h("h2", null, "Chance (simulação do último ano)"),
+        h("div", { class: "row" }, h("span", null, "Chegar ao alvo"), h("strong", { class: "num " + (o.p_target >= o.breakeven ? "gain" : "loss") }, Math.round(o.p_target * 100) + "%")),
+        h("div", { class: "row" }, h("span", null, "Bater o stop"), h("span", { class: "num" }, Math.round(o.p_stop * 100) + "%")),
+        h("div", { class: "row" }, h("span", null, `Nenhum dos dois em ${o.horizon_days} pregões`), h("span", { class: "num" }, Math.round(o.p_time * 100) + "%")),
+        h("div", { class: "row" }, h("span", null, "Retorno esperado"), h("span", { class: "num " + (o.avg_r >= 0 ? "gain" : "loss") }, (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R")),
+        h("p", { class: "muted small" }, `Para a conta compensar com alvo de 2R, a chance precisa passar de ${Math.round(o.breakeven * 100)}%. Simulação com ${o.replays} caminhos; não é previsão: balanços e notícias podem mudar tudo.`)),
+      p && h("button", { onclick: () => go("ticket") }, "Montar ordem de teste"));
   };
   (async () => {
-    try {
-      const sym = state.symbol;
-      const [entry, news] = await Promise.all([api("/entry/" + sym), api("/news?tickers=" + sym + "&hours=24")]);
-      let plan = null, planError = null;
-      try { plan = await api("/exit/plan", { method: "POST", body: {} }); } catch (e) { planError = e.message; }
-      state.asset = { entry, news, plan, planError };
-      draw();
-    } catch (e) { out.replaceChildren(errorBox(e)); }
+    try { state.asset = await api("/swing/asset/" + state.symbol); draw(); }
+    catch (e) { out.replaceChildren(errorBox(e)); }
   })();
   return h("section", { class: "stack" }, h("h1", null, state.symbol), out);
 }
 
-// ---------- time machine
-function simularView() {
-  if (!state.asset || !state.asset.plan) return emptyView("Sem plano para simular", "Abra um ativo com plano de saída primeiro.");
-  const out = h("div", { class: "stack" });
-  const draw = () => {
-    const r = state.tm, mc = r.mc, hist = r.history;
-    out.replaceChildren(
-      h("div", { class: "card stack" },
-        h("h2", null, `${mc.replays.toLocaleString("pt-BR")} sessões simuladas`),
-        h("div", { class: "ruler", role: "img", "aria-label": `Stop primeiro ${pct(mc.p_stop)}, em aberto ${pct(mc.p_neither)}, alvo primeiro ${pct(mc.p_target)}` },
-          h("span", { class: "s", style: `flex:${mc.p_stop}` }),
-          h("span", { class: "n", style: `flex:${mc.p_neither}` }),
-          h("span", { class: "t", style: `flex:${mc.p_target}` })),
-        h("div", { class: "legend" },
-          h("span", { class: "loss" }, "Stop primeiro " + pct(mc.p_stop)),
-          h("span", null, "Em aberto " + pct(mc.p_neither)),
-          h("span", { class: "gain" }, "Alvo primeiro " + pct(mc.p_target)))),
-      h("div", { class: "card stack" }, h("h2", null, "Veredito"),
-        h("p", null, `Em ${hist.triggered} operações passadas com a mesma regra, o resultado médio foi ${String(hist.avg_R).replace(".", ",")}R por operação.`),
-        h("p", { class: "muted", lang: "en" }, r.verdict),
-        h("p", { class: "muted" }, `Nas ${hist.sessions} sessões passadas, o padrão apareceu ${hist.triggered} vezes: alvo ${hist.target}, stop ${hist.stop}, sem resolver ${hist.close}.`)),
-      h("button", { onclick: () => go("ticket") }, "Montar ordem de teste"));
-  };
-  if (state.tm) draw();
-  else {
-    out.replaceChildren(h("p", { class: "spinner" }, "Simulando 10.000 sessões…"));
-    (async () => {
-      try {
-        const { task_id } = await api("/timemachine/run", { method: "POST", body: {} });
-        state.tm = await waitTask(task_id);
-        if (state.tab === "simular") draw();
-      } catch (e) { out.replaceChildren(errorBox(e)); }
-    })();
-  }
-  return h("section", { class: "stack" }, h("h1", null, "Simulação · " + state.symbol), out);
-}
-
 // ---------- ordem de teste
 function ticketView() {
-  if (!state.asset || !state.asset.plan) return emptyView("Sem plano para a ordem", "Abra um ativo com plano de saída primeiro.");
-  const budget = h("input", { id: "budget", type: "number", inputmode: "decimal", min: "1", value: store.get("budget", "5000") });
-  const maxLoss = h("input", { id: "maxloss", type: "number", inputmode: "decimal", min: "1", value: store.get("maxloss", "50") });
+  if (!state.symbol) return emptyView("Sem ação escolhida", "Abra uma ação do Scanner primeiro.");
+  const maxLoss = h("input", { id: "maxloss", type: "number", inputmode: "decimal", min: "1", value: store.get("maxloss", "100") });
   const out = h("div", { class: "stack" });
   let sending = false;
+  const body = (extra) => ({ symbol: state.symbol, max_loss: Number(maxLoss.value), train: trainOn(), ...extra });
 
   const draw = () => {
     const t = state.ticket;
     if (!t) return;
-    const ok = t.risk.verdict === "PASS";
+    const ok = t.risk.verdict === "PASS", o = t.risk.order;
     const confirmBtn = h("button", { id: "confirm", disabled: !ok || sending, onclick: async () => {
       sending = true; confirmBtn.disabled = true;
       try {
-        await api("/paper/orders", { method: "POST", body: { client_order_id: t.clientOrderId, symbol: t.order.symbol,
-          qty: t.order.qty, stop: t.order.stop, target: t.order.target, confirm: true, train: trainOn() } });
+        await api("/swing/orders", { method: "POST", body: body({ client_order_id: t.clientOrderId, confirm: true }) });
         state.toast = "Ordem de teste enviada."; state.ticket = null; state.wallet = null;
         go("carteira");
       } catch (e) {
@@ -426,31 +321,33 @@ function ticketView() {
       }
     } }, "Confirmar ordem de teste");
     out.replaceChildren(
-      h("div", { class: "card stack" },
-        h("div", { class: "row" }, h("strong", null, `Comprar ${t.order.qty} ${t.order.symbol}`), h("span", { class: "num" }, money(t.order.entry))),
-        h("div", { class: "row" }, h("span", { class: "muted" }, "Stop"), h("span", { class: "num loss" }, money(t.order.stop))),
-        h("div", { class: "row" }, h("span", { class: "muted" }, "Alvo"), h("span", { class: "num gain" }, money(t.order.target))),
-        h("div", { class: "row" }, h("span", { class: "muted" }, "Perda máxima no stop"), h("span", { class: "num" }, money(t.order.max_loss)))),
+      ok ? h("div", { class: "card stack" },
+        h("div", { class: "row" }, h("strong", null, `Comprar ${o.qty} ${o.symbol}`), h("span", { class: "num" }, money(o.entry))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Stop"), h("span", { class: "num loss" }, money(o.stop))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Alvo"), h("span", { class: "num gain" }, money(o.target))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Perda máxima no stop"), h("span", { class: "num" }, money(o.max_loss))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Ganho no alvo"), h("span", { class: "num" }, money(o.target_gain))),
+        h("div", { class: "row" }, h("span", { class: "muted" }, "Valor investido"), h("span", { class: "num" }, money(o.cost))),
+        h("p", { class: "muted small" }, `A posição fica aberta de um dia para o outro, até bater stop ou alvo, ou por no máximo ${o.horizon_days} pregões.`)) : null,
       ok ? h("div", { class: "ok" }, h("strong", null, "Aprovado pelo Risco"), ...t.risk.warnings.map((w) => h("p", { class: "muted" }, w)))
          : h("div", { class: "error", role: "alert" }, h("strong", null, "Bloqueado pelo Risco"), ...t.risk.reasons.map((r) => h("p", null, ptReason(r)))),
-      chartCard(t.order.symbol, { entry: t.order.entry, stop: t.order.stop, target: t.order.target }),
+      chartCard(state.symbol, t.risk.order ? { entry: o.entry, stop: o.stop, target: o.target } : {}, "Gráfico · velas diárias", "1d"),
       confirmBtn);
   };
   const calc = async () => {
-    store.set("budget", budget.value); store.set("maxloss", maxLoss.value);
+    store.set("maxloss", maxLoss.value);
     out.replaceChildren(h("p", { class: "spinner" }, "Calculando…"));
     try {
-      const order = await api("/budget/size", { method: "POST", body: { budget: Number(budget.value), max_loss: Number(maxLoss.value) } });
-      const risk = await api("/risk/check?train=" + trainOn(), { method: "POST" });
-      state.ticket = { order, risk, clientOrderId: uid() };
+      const risk = await api("/swing/order/preview", { method: "POST", body: body({ client_order_id: "preview" }) });
+      state.ticket = { risk, clientOrderId: uid() };
       draw();
     } catch (e) { out.replaceChildren(errorBox(e)); }
   };
   if (state.ticket) draw();
-  return h("section", { class: "stack" },
-    h("h1", null, "Ordem de teste"),
-    h("label", null, "Caixa de teste (US$)", budget),
-    h("label", null, "Perda máxima por operação (US$)", maxLoss),
+  return h("section", { class: "stack" }, h("h1", null, "Ordem de teste · " + state.symbol),
+    h("p", { class: "muted" }, "Dinheiro de teste. O app calcula quantas ações comprar para que a perda no stop não passe do limite."),
+    trainBox(),
+    h("label", null, "Perda máxima por operação (R$)", maxLoss),
     h("button", { class: "ghost", onclick: calc }, "Calcular tamanho"),
     out);
 }
@@ -463,7 +360,7 @@ function walletView() {
   const chartFor = (positions) => {
     if (!positions.length) { chart = chartId = null; return null; }
     const p = positions.find((x) => x.id === picked) || positions[0];
-    if (chartId !== p.id) { chartId = p.id; chart = chartCard(p.symbol, { entry: p.entry, stop: p.stop, target: p.target }, `Gráfico · ${p.symbol} (5 min)`); }
+    if (chartId !== p.id) { chartId = p.id; chart = chartCard(p.symbol, { entry: p.entry, stop: p.stop, target: p.target }, `Gráfico · ${p.symbol} (diário)`, "1d"); }
     const pick = positions.length > 1 && h("div", { class: "chips" }, positions.map((x) => h("button", {
       class: x.id === p.id ? "mini" : "ghost mini", onclick: () => { picked = x.id; draw(); } }, x.symbol)));
     return h("div", { class: "stack" }, pick, chart);
@@ -479,11 +376,11 @@ function walletView() {
       h("div", { class: "card" }, h("h2", null, "Posições abertas"),
         positions.length ? h("ul", { class: "plain" }, positions.map((p) => h("li", { class: "row" },
           h("span", null, h("strong", null, `${p.qty} ${p.symbol}`), h("span", { class: "muted" }, " a " + money(p.entry))),
-          h("span", { class: "num " + cls(p.open_pnl) }, money(p.open_pnl))))) : h("p", { class: "muted" }, "Nenhuma posição. Monte uma ordem de teste a partir do Scanner.")),
+          h("span", { class: "num " + cls(p.open_pnl) }, money(p.open_pnl))))) : h("p", { class: "muted" }, "Nenhuma posição. Rode o Scanner e monte uma ordem de teste.")),
       chartFor(positions),
       h("div", { class: "card" }, h("h2", null, "Histórico"),
         history.length ? h("ul", { class: "plain" }, history.map((t) => h("li", { class: "row" },
-          h("span", null, h("strong", null, `${t.qty} ${t.symbol}`), h("span", { class: "muted" }, " fechou no " + ({ stop: "stop", target: "alvo", eod: "fim do dia" })[t.reason])),
+          h("span", null, h("strong", null, `${t.qty} ${t.symbol}`), h("span", { class: "muted" }, " fechou no " + ({ stop: "stop", target: "alvo", eod: "fim do dia", prazo: "prazo" })[t.reason])),
           h("span", { class: "num " + cls(t.pnl) }, money(t.pnl))))) : h("p", { class: "muted" }, "Nenhuma operação fechada ainda.")));
   };
   const load = async () => {
@@ -516,7 +413,7 @@ function render() {
   for (const [id, label] of TABS) {
     tabsEl.append(h("button", { "aria-current": state.tab === id ? "page" : null, onclick: () => go(id) }, label));
   }
-  const views = { scanner: scannerView, ativo: assetView, simular: simularView, ticket: ticketView, carteira: walletView };
+  const views = { scanner: scannerView, ativo: assetView, ticket: ticketView, carteira: walletView };
   view.replaceChildren(views[state.tab]());
 }
 

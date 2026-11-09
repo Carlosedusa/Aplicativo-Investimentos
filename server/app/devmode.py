@@ -38,6 +38,32 @@ class FakeRunner:
         return doc
 
 
+def demo_bars(symbol: str, n: int = 260) -> list[dict]:
+    """Barras diárias de demonstração, estáveis por ticker (sem rede). Termina num rompimento de 20 dias."""
+    import random
+    from datetime import datetime, timedelta, timezone
+    rng = random.Random(sum(map(ord, symbol)))
+    p = 10 + rng.random() * 40
+    day = datetime(2026, 11, 6, 13, 0, tzinfo=timezone.utc) - timedelta(days=n * 7 // 5 + 2)
+    out = []
+    while len(out) < n:
+        day += timedelta(days=1)
+        if day.weekday() >= 5:
+            continue
+        o = p * (1 + rng.gauss(0, 0.004)); c = o * (1 + rng.gauss(0.0005, 0.015))
+        out.append({"t": int(day.timestamp()), "o": o, "h": max(o, c) * (1 + abs(rng.gauss(0, 0.006))),
+                    "l": min(o, c) * (1 - abs(rng.gauss(0, 0.006))), "c": c, "v": 5_000_000})
+        p = c
+    top = max(b["c"] for b in out[-21:-1])
+    last = out[-1]
+    last["c"] = max(last["c"], top * 1.01); last["h"] = max(last["h"], last["c"])
+    return out
+
+
+def demo_swing_source(symbol: str) -> list[dict]:
+    return demo_bars(symbol)
+
+
 class DemoFeed:
     """Preço fixo (TSLA 364,18), sem rede."""
 
@@ -45,9 +71,15 @@ class DemoFeed:
         self.prices = prices or {"TSLA": 364.18}
 
     def last(self, symbol: str) -> float:
+        import re
+        if symbol not in self.prices and re.match(r"^[A-Z]{4}\d{1,2}$", symbol):
+            return round(demo_bars(symbol)[-1]["c"], 2)
         return self.prices.get(symbol, 50.0)
 
-    def candles(self, symbol: str, limit: int = 120):
+    def candles(self, symbol: str, interval: str = "5m", limit: int = 120):
+        if interval == "1d":
+            return [{"t": b["t"], "o": round(b["o"], 2), "h": round(b["h"], 2), "l": round(b["l"], 2), "c": round(b["c"], 2)}
+                    for b in demo_bars(symbol)[-limit:]]
         p, out = self.last(symbol), []
         for i in range(limit):
             base = p * (1 + 0.004 * ((i * 7) % 11 - 5) / 5)

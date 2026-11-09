@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings
 from .engine import EngineError, run_tool
 from .odds import real_odds
+from .routes_swing import build_router as swing_router
+from .swing.source import YahooDailySource
 from .routes_analysis import build_router as analysis_router
 from .paper.broker import PaperBroker
 from .paper.monitor import Monitor
@@ -41,6 +43,7 @@ def create_app(settings: Settings | None = None, feed=None, clock=None) -> FastA
     app.state.settings = settings
     app.state.tasks = TaskManager()
     app.state.odds = real_odds
+    app.state.swing_source = YahooDailySource()
 
     def require_token(request: Request) -> None:
         header = request.headers.get("authorization", "")
@@ -63,6 +66,7 @@ def create_app(settings: Settings | None = None, feed=None, clock=None) -> FastA
     app.include_router(analysis_router(require_token))
     app.include_router(trade_router(require_token))
     app.include_router(paper_router(require_token))
+    app.include_router(swing_router(require_token))
 
     @app.get("/health")
     def health():
