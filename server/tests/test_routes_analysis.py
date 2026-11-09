@@ -17,7 +17,7 @@ def test_scan_orb_returns_task_and_result_is_watchlist(client, fake_engine):
     assert r.status_code == 200
     t = wait_task(client, r.json()["task_id"])
     assert t["status"] == "done" and t["result"]["mode"] == "orb"
-    assert fake_engine.calls[0] == ("scanner", ["orb", "--at", "10:15"])
+    assert fake_engine.calls[-1] == ("scanner", ["orb", "--at", "10:15"])
     wl = client.get("/watchlist", headers=AUTH)
     assert wl.status_code == 200 and wl.json()["hits"]
 
@@ -76,3 +76,16 @@ def test_engine_failure_in_task_is_error_state(client, fake_engine):
     r = client.post("/scan/orb", json={}, headers=AUTH)
     t = wait_task(client, r.json()["task_id"])
     assert t["status"] == "error" and "Yahoo" in t["error"]
+
+
+def test_scan_builds_universe_first_when_missing(client, fake_engine):
+    t = wait_task(client, client.post("/scan/daily", json={}, headers=AUTH).json()["task_id"])
+    assert t["status"] == "done"
+    assert fake_engine.calls == [("scanner", ["universe"]), ("scanner", ["daily"])]
+    wait_task(client, client.post("/scan/daily", json={}, headers=AUTH).json()["task_id"])
+    assert fake_engine.calls[2:] == [("scanner", ["daily"])]  # lista já existe: não baixa de novo
+
+
+def test_scan_with_explicit_symbols_skips_universe(client, fake_engine):
+    wait_task(client, client.post("/scan/daily", json={"symbols": ["TSLA"]}, headers=AUTH).json()["task_id"])
+    assert fake_engine.calls == [("scanner", ["daily", "--symbols", "TSLA"])]

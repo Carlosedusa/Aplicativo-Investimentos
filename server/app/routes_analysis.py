@@ -48,7 +48,15 @@ def build_router(require_token) -> APIRouter:
         if body.limit:
             args += ["--limit", str(body.limit)]
         runner = request.app.state.runner
-        return {"task_id": request.app.state.tasks.submit(lambda: runner("scanner", args))}
+        universe = request.app.state.settings.workdir / "trader" / "universe.txt"
+        needs_universe = not body.symbols and not universe.exists()
+
+        def job():
+            if needs_universe:  # a skill exige a lista de ações antes da 1ª varredura
+                runner("scanner", ["universe"])
+            return runner("scanner", args)
+
+        return {"task_id": request.app.state.tasks.submit(job)}
 
     @r.get("/watchlist")
     def watchlist(request: Request):

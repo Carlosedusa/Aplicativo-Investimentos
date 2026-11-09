@@ -26,6 +26,9 @@ class FakeRunner:
         doc = self.override.get(tool) or json.loads((SAMPLES / (SAMPLE_FOR[tool] + ".json")).read_text())
         trader = self.workdir / "trader"
         trader.mkdir(parents=True, exist_ok=True)
+        if tool == "scanner" and args[:1] == ["universe"]:
+            (trader / "universe.txt").write_text("TSLA\nAAPL\n")
+            return {"symbols": 2}
         if tool == "scanner":
             (trader / "watchlist.json").write_text(json.dumps(doc))
         if tool == "budget":
