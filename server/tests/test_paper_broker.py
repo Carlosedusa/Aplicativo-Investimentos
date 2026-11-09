@@ -126,3 +126,40 @@ def test_find_by_client_order_id(env):
     assert broker.find("o1") is None
     pos = place(broker)
     assert broker.find("o1") == pos
+
+
+def test_one_failing_quote_does_not_block_other_positions(env):
+    broker, feed, clock = env
+    feed.prices["XYZ"] = 10.0
+    place(broker)
+    broker.place_bracket("o2", "XYZ", 5, stop=9.0, target=12.0)
+    feed.bad.add("XYZ")
+    clock.at(11, 0)
+    feed.highs["TSLA"] = 376.0
+    closed = broker.tick()
+    assert [t.symbol for t in closed] == ["TSLA"]
+    assert [p.symbol for p in broker.positions()] == ["XYZ"]
+
+
+def test_slow_quote_does_not_hold_the_book_lock(env):
+    import threading
+    broker, feed, clock = env
+    place(broker)
+    clock.at(11, 0)
+    entered, release = threading.Event(), threading.Event()
+
+    def hold():
+        entered.set()
+        release.wait(3)
+
+    feed.on_range = hold
+    t = threading.Thread(target=broker.tick)
+    t.start()
+    assert entered.wait(2)
+    done = []
+    reader = threading.Thread(target=lambda: done.append(broker.positions()))
+    reader.start()
+    reader.join(1)
+    release.set()
+    t.join(3)
+    assert done, "positions() ficou preso esperando a cotação"

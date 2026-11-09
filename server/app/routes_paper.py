@@ -57,15 +57,17 @@ def build_router(require_token) -> APIRouter:
         symbol = body.symbol.upper()
         price = float(feed.last(symbol))
         now_iso = request.app.state.clock().isoformat().replace("+00:00", "Z")
-        write_risk_inputs(request, body, price, now_iso)
-        verdict = run_risk(request)
-        if verdict["verdict"] == "BLOCK":
-            return JSONResponse({"detail": "Bloqueado pelo Risco: " + "; ".join(verdict["reasons"]),
-                                 "reasons": verdict["reasons"]}, status_code=409)
-        try:
-            pos = broker.place_bracket(body.client_order_id, symbol, body.qty, body.stop, body.target)
-        except PaperError as e:
-            raise HTTPException(409, str(e))
+        # Um pedido por vez: os arquivos de entrada do Risco são compartilhados.
+        with request.app.state.trade_lock:
+            write_risk_inputs(request, body, price, now_iso)
+            verdict = run_risk(request)
+            if verdict["verdict"] == "BLOCK":
+                return JSONResponse({"detail": "Bloqueado pelo Risco: " + "; ".join(verdict["reasons"]),
+                                     "reasons": verdict["reasons"]}, status_code=409)
+            try:
+                pos = broker.place_bracket(body.client_order_id, symbol, body.qty, body.stop, body.target)
+            except PaperError as e:
+                raise HTTPException(409, str(e))
         return asdict(pos)
 
     @r.get("/paper/positions")

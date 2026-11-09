@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from .prices import PriceFeed
 
+log = logging.getLogger("paper.broker")
 NY = ZoneInfo("America/New_York")
 FLAT_BY = time(15, 55)
 
@@ -119,17 +121,19 @@ class PaperBroker:
         return [ClosedTrade(*r) for r in rows]
 
     def tick(self) -> list[ClosedTrade]:
-        """Confere stop/alvo/15:55 de cada posição aberta e fecha as que saíram."""
-        closed = []
+        """Confere stop/alvo/15:55 de cada posição aberta e fecha as que saíram.
+
+        A rede é consultada fora do lock; uma cotação que falha só pula aquela posição."""
         with self._lock:
-            now = self._now()
-            now_ny = now.astimezone(NY)
             rows = self._db.execute(
                 "SELECT %s, checked_at FROM positions WHERE status='open'" % COLS).fetchall()
-            for *pos_cols, checked_at in rows:
-                pos = Position(*pos_cols)
-                since = datetime.fromisoformat(checked_at)
-                low, high = self.feed.range(pos.symbol, since)
+        now = self._now()
+        now_ny = now.astimezone(NY)
+        decisions = []
+        for *pos_cols, checked_at in rows:
+            pos = Position(*pos_cols)
+            try:
+                low, high = self.feed.range(pos.symbol, datetime.fromisoformat(checked_at))
                 exit_price = reason = None
                 if low <= pos.stop:  # stop vence se os dois níveis foram cruzados (pior caso)
                     exit_price, reason = pos.stop, "stop"
@@ -139,6 +143,16 @@ class PaperBroker:
                     opened_ny = datetime.fromisoformat(pos.opened_at).astimezone(NY)
                     if now_ny.date() > opened_ny.date() or now_ny.time() >= FLAT_BY:
                         exit_price, reason = float(self.feed.last(pos.symbol)), "eod"
+            except Exception as e:
+                log.warning("sem cotação de %s: %s", pos.symbol, e)
+                continue
+            decisions.append((pos, exit_price, reason))
+        closed = []
+        with self._lock:
+            for pos, exit_price, reason in decisions:
+                still_open = self._db.execute("SELECT status FROM positions WHERE id=?", (pos.id,)).fetchone()
+                if not still_open or still_open[0] != "open":
+                    continue
                 if reason is None:
                     self._db.execute("UPDATE positions SET checked_at=? WHERE id=?", (now.isoformat(), pos.id))
                     continue

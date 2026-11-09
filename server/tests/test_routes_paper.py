@@ -66,3 +66,39 @@ def test_monitor_tick_closes_position_and_history_shows_it(client, fake_engine, 
 
 def test_paper_routes_require_token(client):
     assert client.get("/paper/positions").status_code == 401
+
+
+def test_price_feed_down_on_order_is_502_with_message(client, fake_engine, feed):
+    feed.bad.add("TSLA")
+    r = client.post("/paper/orders", json=ORDER, headers=AUTH)
+    assert r.status_code == 502 and "cotação" in r.json()["detail"].lower()
+
+
+def test_concurrent_orders_never_overlap_risk_check(client, fake_engine):
+    import threading, time
+    state = {"now": 0, "max": 0}
+    lock = threading.Lock()
+    inner = client.app.state.runner
+
+    def slow(tool, args):
+        with lock:
+            state["now"] += 1
+            state["max"] = max(state["max"], state["now"])
+        time.sleep(0.05)
+        try:
+            return inner(tool, args)
+        finally:
+            with lock:
+                state["now"] -= 1
+
+    client.app.state.runner = slow
+    threads = [threading.Thread(target=lambda i=i: client.post(
+        "/paper/orders", json={**ORDER, "client_order_id": "c%d" % i, "qty": 1}, headers=AUTH)) for i in range(4)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert state["max"] == 1
+
+
+def test_docs_and_openapi_require_no_public_access(client):
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404, path

@@ -1,4 +1,5 @@
 import secrets
+import threading
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -12,7 +13,7 @@ from .engine import EngineError, run_tool
 from .routes_analysis import build_router as analysis_router
 from .paper.broker import PaperBroker
 from .paper.monitor import Monitor
-from .paper.prices import YahooPriceFeed
+from .paper.prices import PriceError, YahooPriceFeed
 from .routes_paper import build_router as paper_router
 from .routes_trade import build_router as trade_router
 from .tasks import TaskManager
@@ -31,7 +32,9 @@ def create_app(settings: Settings | None = None, feed=None, clock=None) -> FastA
         yield
         monitor.stop()
 
-    app = FastAPI(title="Day Trader API", lifespan=lifespan)
+    app = FastAPI(title="Day Trader API", lifespan=lifespan,
+                  docs_url=None, redoc_url=None, openapi_url=None)  # contrato: docs/api/openapi.json
+    app.state.trade_lock = threading.Lock()
     app.state.feed, app.state.clock = feed, clock
     app.state.broker, app.state.monitor = broker, monitor
     app.state.settings = settings
@@ -49,6 +52,10 @@ def create_app(settings: Settings | None = None, feed=None, clock=None) -> FastA
 
     @app.exception_handler(EngineError)
     async def engine_error(_request, exc: EngineError):
+        return JSONResponse({"detail": str(exc)}, status_code=502)
+
+    @app.exception_handler(PriceError)
+    async def price_error(_request, exc: PriceError):
         return JSONResponse({"detail": str(exc)}, status_code=502)
 
     app.include_router(analysis_router(require_token))

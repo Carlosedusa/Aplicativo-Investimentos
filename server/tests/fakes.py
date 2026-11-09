@@ -9,11 +9,21 @@ class FakeFeed:
         self.prices = {"TSLA": price}
         self.lows = {}
         self.highs = {}
+        self.bad = set()      # símbolos cuja cotação falha
+        self.on_range = None  # gancho chamado dentro de range()
 
     def last(self, symbol):
+        from app.paper.prices import PriceError
+        if symbol in self.bad:
+            raise PriceError("Sem cotação de %s agora." % symbol)
         return self.prices[symbol]
 
     def range(self, symbol, since):
+        from app.paper.prices import PriceError
+        if self.on_range:
+            self.on_range()
+        if symbol in self.bad:
+            raise PriceError("Sem cotação de %s agora." % symbol)
         p = self.prices[symbol]
         return self.lows.get(symbol, p), self.highs.get(symbol, p)
 

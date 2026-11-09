@@ -39,7 +39,10 @@ def build_router(require_token) -> APIRouter:
         cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
         cfg.update({"budget": body.budget, "max_loss_per_trade_usd": body.max_loss})
         cfg_path.write_text(json.dumps(cfg, indent=2))
-        doc = request.app.state.runner("budget", ["--write"])
+        with request.app.state.trade_lock:
+            doc = request.app.state.runner("budget", ["--write"])
+        if not doc.get("orders"):
+            raise HTTPException(409, (doc.get("sizing") or {}).get("refusal") or "O Orçamento não gerou ordem.")
         order = doc["orders"][0]
         plan = order.get("plan", {})
         return {
@@ -54,6 +57,7 @@ def build_router(require_token) -> APIRouter:
     def risk_check(request: Request):
         if not (trader_dir(request) / "orders.json").exists():
             raise HTTPException(409, "Sem ordem para checar: calcule o tamanho da posição primeiro.")
-        return run_risk(request)
+        with request.app.state.trade_lock:
+            return run_risk(request)
 
     return r

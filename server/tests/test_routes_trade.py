@@ -49,3 +49,10 @@ def test_risk_block_has_reasons(client, fake_engine):
     }
     r = client.post("/risk/check", headers=AUTH).json()
     assert r["verdict"] == "BLOCK" and r["reasons"] == ["max loss $65.28 over the $50 limit"]
+
+
+def test_budget_refusal_becomes_409_with_reason(client, fake_engine):
+    make_plan(client)
+    fake_engine.override["budget"] = {"sizing": {"refusal": "0 ações: a perda de 1 ação passa de US$ 50"}, "orders": []}
+    r = client.post("/budget/size", json={"budget": 5000, "max_loss": 50}, headers=AUTH)
+    assert r.status_code == 409 and "0 ações" in r.json()["detail"]

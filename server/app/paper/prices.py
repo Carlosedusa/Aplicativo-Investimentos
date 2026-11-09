@@ -6,6 +6,10 @@ from typing import Protocol
 UA = "Mozilla/5.0 (daytrader-paper)"
 
 
+class PriceError(Exception):
+    """Cotação indisponível (Yahoo fora do ar, símbolo desconhecido, resposta inesperada)."""
+
+
 class PriceFeed(Protocol):
     def last(self, symbol: str) -> float: ...
 
@@ -17,6 +21,14 @@ class YahooPriceFeed:
     """Barras de 1 minuto do Yahoo (gratuito, não oficial)."""
 
     def _bars(self, symbol: str) -> dict:
+        try:
+            return self._fetch(symbol)
+        except PriceError:
+            raise
+        except Exception as e:
+            raise PriceError("Sem cotação de %s agora (Yahoo indisponível ou símbolo desconhecido)." % symbol) from e
+
+    def _fetch(self, symbol: str) -> dict:
         url = "https://query2.finance.yahoo.com/v8/finance/chart/%s?range=1d&interval=1m" % symbol
         req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=15) as resp:
