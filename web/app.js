@@ -186,12 +186,24 @@ function candleChart(candles, { entry, stop, target }) {
   return svg;
 }
 
-function chartCard(symbol, levels) {
-  const box = h("div", { class: "card stack" }, h("h2", null, "Gráfico · velas de 15 min"), h("p", { class: "muted" }, "Carregando gráfico…"));
-  api("/candles/" + symbol).then((d) => {
-    box.replaceChildren(h("h2", null, "Gráfico · velas de 15 min"), candleChart(d.candles, levels),
-      h("p", { class: "muted" }, "Linha verde: alvo (ganho). Linha vermelha: stop (perda). Linha escura: entrada."));
-  }).catch((e) => box.replaceChildren(h("h2", null, "Gráfico · velas de 15 min"), errorBox(e)));
+// Atualiza sozinho a cada 10 s enquanto estiver na tela (para quando sai dela).
+function chartCard(symbol, levels, title) {
+  const head = h("h2", null, title || "Gráfico · velas de 15 min");
+  const stamp = h("p", { class: "muted" }, "Carregando gráfico…");
+  const holder = h("div");
+  const box = h("div", { class: "card stack" }, head, holder, stamp);
+  let timer = null, started = false;
+  const load = async () => {
+    if (!box.isConnected && started) { clearInterval(timer); timer = null; started = false; return; }
+    try {
+      const d = await api("/candles/" + symbol);
+      const last = d.candles[d.candles.length - 1];
+      holder.replaceChildren(candleChart(d.candles, levels));
+      stamp.textContent = `Atualiza sozinho a cada 10 s · último preço ${money(last && last.c)} · ${new Date().toLocaleTimeString("pt-BR")}. Verde: alvo. Vermelho: stop. Escura: entrada.`;
+    } catch (e) { if (!holder.firstChild) holder.replaceChildren(errorBox(e)); else stamp.textContent = "Sem atualização agora; tentando de novo…"; }
+  };
+  box.start = () => { if (started) return; started = true; load(); timer = setInterval(load, 10000); };
+  queueMicrotask(() => setTimeout(box.start, 0));
   return box;
 }
 
@@ -324,6 +336,11 @@ function ticketView() {
 // ---------- carteira
 function walletView() {
   const out = h("div", { class: "stack" });
+  const charts = new Map(); // um gráfico por posição, mantido entre as atualizações
+  const chartFor = (p) => {
+    if (!charts.has(p.id)) charts.set(p.id, chartCard(p.symbol, { entry: p.entry, stop: p.stop, target: p.target }, `Gráfico · ${p.symbol} (15 min)`));
+    return charts.get(p.id);
+  };
   const draw = () => {
     const { account: a, positions, history } = state.wallet;
     const cls = (n) => (n > 0 ? "gain" : n < 0 ? "loss" : "");
@@ -336,6 +353,7 @@ function walletView() {
         positions.length ? h("ul", { class: "plain" }, positions.map((p) => h("li", { class: "row" },
           h("span", null, h("strong", null, `${p.qty} ${p.symbol}`), h("span", { class: "muted" }, " a " + money(p.entry))),
           h("span", { class: "num " + cls(p.open_pnl) }, money(p.open_pnl))))) : h("p", { class: "muted" }, "Nenhuma posição. Monte uma ordem de teste a partir do Scanner.")),
+      ...positions.map(chartFor),
       h("div", { class: "card" }, h("h2", null, "Histórico"),
         history.length ? h("ul", { class: "plain" }, history.map((t) => h("li", { class: "row" },
           h("span", null, h("strong", null, `${t.qty} ${t.symbol}`), h("span", { class: "muted" }, " fechou no " + ({ stop: "stop", target: "alvo", eod: "fim do dia" })[t.reason])),
@@ -350,6 +368,7 @@ function walletView() {
   };
   if (state.wallet) draw(); else out.replaceChildren(h("p", { class: "spinner" }, "Carregando…"));
   load();
+  const live = setInterval(() => { if (!out.isConnected) clearInterval(live); else load(); }, 10000);
   const toast = state.toast; state.toast = null;
   return h("section", { class: "stack" }, h("h1", null, "Carteira"),
     toast && h("div", { class: "ok toast", role: "status" }, toast),
@@ -374,5 +393,4 @@ function render() {
   view.replaceChildren(views[state.tab]());
 }
 
-setInterval(() => { if (state.tab === "carteira" && store.get("token", "")) render(); }, 30000);
 render();
