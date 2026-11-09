@@ -51,8 +51,8 @@ async function api(path, opts = {}) {
   return data;
 }
 
-async function waitTask(id) {
-  for (let i = 0; i < 400; i++) {
+async function waitTask(id, maxSeconds = 480) {
+  for (let i = 0; i < Math.ceil(maxSeconds / 1.2); i++) {
     const t = await api("/tasks/" + id);
     if (t.status === "done") return t.result;
     if (t.status === "error") throw new ApiError(t.error || "A tarefa falhou.", 502);
@@ -125,13 +125,14 @@ function brainSvg() {
 function scannerView() {
   const out = h("div", { class: "stack" });
   const oddsOf = {};   // símbolo -> chance calculada
+  const pending = new Set(); // símbolos ainda sendo calculados
   const fmt = (x) => String(x).replace(".", ",");
   const row = (hit) => {
     const o = oddsOf[hit.symbol];
     const line2 = hit.at ? "rompeu às " + hit.at : "fechou em " + (hit.close_date || "—") + (hit.rsi != null ? " · RSI " + fmt(hit.rsi) : "");
     const right = hit.pct_over != null ? h("span", { class: "num gain" }, "+" + fmt(hit.pct_over) + "%") : h("span", { class: "muted" }, (hit.setups || []).join(", "));
     let chance;
-    if (!o) chance = h("span", { class: "muted small" }, "Calculando chance…");
+    if (!o) chance = pending.has(hit.symbol) ? h("span", { class: "muted small" }, "Calculando chance…") : h("span", { class: "muted small" }, "Toque para ver o plano e simular");
     else if (o.error) chance = h("span", { class: "muted small" }, "Chance indisponível");
     else {
       const p = o.p_target, good = p >= o.breakeven;
@@ -156,16 +157,26 @@ function scannerView() {
       h("p", { class: "muted small" }, "A chance vem de 2.000 simulações com os últimos 60 dias do próprio ativo (stop na faixa inicial ou 1%, alvo 2R). Não é previsão. Os 15 primeiros são calculados e sobem pela chance."),
       ...ranked().map(row));
   };
+  // Calcula em lotes de 3, dois lotes ao mesmo tempo: a tela vai preenchendo e um ativo lento não trava os outros.
   const loadOdds = async () => {
     const hits = rankHits(state.scan.hits).slice(0, 15);
-    if (!hits.length) return;
-    try {
-      const { task_id } = await api("/odds", { method: "POST", body: { hits: hits.map((x) => ({ symbol: x.symbol, price: x.price,
-        ...(x.or_high != null ? { or_high: x.or_high, or_low: x.or_low, bar_index: x.bar_index } : {}) })) } });
-      const r = await waitTask(task_id);
-      Object.assign(oddsOf, r.odds);
-    } catch (e) { hits.forEach((x) => { oddsOf[x.symbol] = { error: e.message }; }); }
-    if (state.tab === "scanner" && out.isConnected) show();
+    hits.forEach((x) => { if (!oddsOf[x.symbol]) pending.add(x.symbol); });
+    const batches = [];
+    for (let i = 0; i < hits.length; i += 3) batches.push(hits.slice(i, i + 3).filter((x) => pending.has(x.symbol)));
+    const refresh = () => { if (state.tab === "scanner" && out.isConnected) show(); };
+    const doBatch = async (b) => {
+      if (!b.length) return;
+      try {
+        const { task_id } = await api("/odds", { method: "POST", body: { hits: b.map((x) => ({ symbol: x.symbol, price: x.price,
+          ...(x.or_high != null ? { or_high: x.or_high, or_low: x.or_low, bar_index: x.bar_index } : {}) })) } });
+        Object.assign(oddsOf, (await waitTask(task_id, 90)).odds);
+      } catch (e) { b.forEach((x) => { oddsOf[x.symbol] = { error: e.message }; }); }
+      b.forEach((x) => pending.delete(x.symbol));
+      refresh();
+    };
+    const lane = async () => { while (batches.length) await doBatch(batches.shift()); };
+    refresh();
+    await Promise.all([lane(), lane()]);
   };
   const run = async (mode, popular) => {
     const t0 = Date.now();

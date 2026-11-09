@@ -1,5 +1,6 @@
 """Chance de o preço chegar ao alvo antes do stop, usando o motor da Máquina do Tempo (versão rápida)."""
 import importlib.util
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -20,10 +21,22 @@ def _engine():
     return _tm
 
 
+_charts: dict = {}   # símbolo -> (hora, texto): os 60 dias não mudam em minutos
+
+
+def _chart(tm, symbol):
+    hit = _charts.get(symbol)
+    if hit and time.monotonic() - hit[0] < 600:
+        return hit[1]
+    text = _chart(tm, symbol)
+    _charts[symbol] = (time.monotonic(), text)
+    return text
+
+
 def real_odds(symbol: str, entry: float, stop: float, target: float, k: int, replays: int = 2000) -> dict:
     tm = _engine()
     now = datetime.now(timezone.utc).replace(tzinfo=None)  # o motor usa UTC sem fuso
-    text = tm.fetch_chart(symbol)
+    text = _chart(tm, symbol)
     _, bars, _ = tm.parse_bars(tm.chart_result(text, symbol), now)
     today = now.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("America/New_York")).date().isoformat()
     sessions, _ = tm.full_sessions(tm.split_sessions(bars), today)
@@ -45,7 +58,7 @@ def plan_for(hit: dict) -> tuple[float, float, float, int, str]:
     return price, stop, price + TARGET_R * (price - stop), k, basis
 
 
-def compute_many(fn, hits: list[dict], workers: int = 6) -> dict:
+def compute_many(fn, hits: list[dict], workers: int = 3) -> dict:
     def one(hit):
         entry, stop, target, k, basis = plan_for(hit)
         try:

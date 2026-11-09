@@ -5,7 +5,7 @@ from typing import Callable
 
 
 class TaskManager:
-    def __init__(self, workers: int = 2):
+    def __init__(self, workers: int = 4):
         self._pool = ThreadPoolExecutor(max_workers=workers)
         self._tasks: dict[str, dict] = {}
         self._lock = threading.Lock()
