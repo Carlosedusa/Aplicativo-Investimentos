@@ -81,6 +81,31 @@ function loginView(msg) {
 }
 
 // ---------- scanner
+// Maior oportunidade primeiro: no rompimento, quanto acima da faixa (pct_over); no pré-mercado, mantém a ordem do servidor.
+function rankHits(hits) {
+  const score = (x) => (typeof x.pct_over === "number" ? x.pct_over : null);
+  if (!hits.some((x) => score(x) != null)) return hits;
+  return [...hits].sort((a, b) => (score(b) ?? -Infinity) - (score(a) ?? -Infinity) || a.symbol.localeCompare(b.symbol));
+}
+
+function brainSvg() {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (t, at) => { const e = document.createElementNS(NS, t); for (const [k, v] of Object.entries(at)) e.setAttribute(k, v); return e; };
+  const svg = el("svg", { viewBox: "0 0 200 140", class: "brain", role: "img", "aria-label": "Cérebro analisando o mercado" });
+  // contorno (2 hemisférios) + sulcos + sinapses
+  const paths = [
+    "M100 14 C78 4 52 14 48 36 C30 38 20 56 28 72 C20 88 32 106 50 106 C56 124 82 130 100 120",
+    "M100 14 C122 4 148 14 152 36 C170 38 180 56 172 72 C180 88 168 106 150 106 C144 124 118 130 100 120",
+    "M100 14 L100 120",
+    "M56 50 C70 44 82 54 92 48", "M144 50 C130 44 118 54 108 48",
+    "M44 76 C60 70 72 84 90 76", "M156 76 C140 70 128 84 110 76",
+    "M62 98 C74 90 84 102 94 94", "M138 98 C126 90 116 102 106 94",
+  ];
+  paths.forEach((d, i) => svg.append(el("path", { d, class: "bl", style: `animation-delay:${(i * 0.18).toFixed(2)}s` })));
+  [[56,50],[92,48],[44,76],[90,76],[62,98],[94,94],[144,50],[108,48],[156,76],[110,76],[138,98],[106,94],[100,30],[100,104]]
+    .forEach(([x, y], i) => svg.append(el("circle", { cx: x, cy: y, r: 3, class: "bn", style: `animation-delay:${(i * 0.13).toFixed(2)}s` })));
+  return svg;
+}
 function scannerView() {
   const out = h("div", { class: "stack" });
   const show = () => {
@@ -88,14 +113,14 @@ function scannerView() {
     if (!s) return;
     out.replaceChildren(
       h("p", { class: "muted" }, `${s.counts ? s.counts.scanned : s.scanned} gráficos analisados, ${s.hits.length} com o padrão.`),
-      ...s.hits.slice(0, 40).map((hit) => h("button", { class: "hit", onclick: () => { selectSymbol(hit.symbol); } },
+      ...rankHits(s.hits).slice(0, 40).map((hit) => h("button", { class: "hit", onclick: () => { selectSymbol(hit.symbol); } },
         h("strong", null, hit.symbol), h("span", { class: "num" }, money(hit.price)),
         h("span", { class: "muted" }, "rompeu às " + hit.at), h("span", { class: "num gain" }, "+" + String(hit.pct_over).replace(".", ",") + "%"))));
   };
   const run = async (mode, popular) => {
     const t0 = Date.now();
-    const msg = h("p", { class: "spinner" }, "Varrendo o mercado…");
-    out.replaceChildren(msg);
+    const msg = h("p", { class: "spinner", role: "status" }, "Varrendo o mercado…");
+    out.replaceChildren(brainSvg(), msg);
     const timer = setInterval(() => { msg.textContent = `Varrendo o mercado… ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
     try {
       const { task_id } = await api("/scan/" + mode, { method: "POST", body: { popular } });

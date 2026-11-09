@@ -52,3 +52,12 @@ ul.plain { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
 @media (prefers-reduced-motion: no-preference) { .toast { animation: pop .25s ease-out; } @keyframes pop { from { transform: translateY(6px); opacity: 0; } } }
 a { color: var(--ink); text-decoration-color: var(--flat); text-underline-offset: 3px; }
 .legend span { font-weight: 600; }
+.brain { width: 160px; height: 112px; margin: 8px auto; display: block; }
+.brain .bl { fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; opacity: .55; }
+.brain .bn { fill: var(--gain); opacity: .5; }
+@media (prefers-reduced-motion: no-preference) {
+  .brain .bl { stroke-dasharray: 220; animation: trace 2.4s ease-in-out infinite; }
+  .brain .bn { animation: fire 1.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes trace { 0% { stroke-dashoffset: 220; opacity: .3; } 50% { stroke-dashoffset: 0; opacity: 1; stroke: var(--gain); } 100% { stroke-dashoffset: -220; opacity: .3; } }
+  @keyframes fire { 0%, 100% { transform: scale(.7); opacity: .3; } 50% { transform: scale(1.6); opacity: 1; } }
+}
