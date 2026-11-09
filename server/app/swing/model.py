@@ -132,6 +132,30 @@ def simulate(bars: list[dict], entry: float, stop: float, target: float, replays
             "breakeven": round(1 / (1 + rr), 4), "replays": replays, "horizon_days": HORIZON}
 
 
+MIN_AVG_R = 0.1
+
+
+def recommendation(a: dict) -> dict:
+    """Recomendada = tendência de alta + gatilho de compra + plano válido + chance acima do equilíbrio e retorno esperado positivo."""
+    o = a["odds"]
+    if not a["trend"]["up"]:
+        why = "Sem tendência de alta: o método só compra a favor da tendência."
+    elif not a["setups"]:
+        why = "Sem gatilho de compra agora: aguarde pullback, repique no suporte ou rompimento."
+    elif not a["plan"]:
+        why = "Sem plano: o último pivô de baixa está longe demais (risco alto)."
+    elif not a["liquid"]:
+        why = "Liquidez baixa para operar."
+    elif o and o["p_target"] < o["breakeven"]:
+        why = "Chance de chegar ao alvo (%d%%) abaixo do equilíbrio (%d%%): a conta não compensa." % (round(o["p_target"] * 100), round(o["breakeven"] * 100))
+    elif o and o["avg_r"] < MIN_AVG_R:
+        why = "Retorno esperado baixo (%+.2fR)." % o["avg_r"]
+    else:
+        return {"ok": True, "label": "Recomendada para comprar",
+                "reason": "Tendência de alta, gatilho de compra e chance acima do equilíbrio (%d%% contra %d%%)." % (round(o["p_target"] * 100), round(o["breakeven"] * 100))}
+    return {"ok": False, "label": "Não recomendada", "reason": why}
+
+
 def analyze(symbol: str, bars: list[dict], replays: int = REPLAYS, scan: bool = False) -> dict | None:
     """Análise de um ativo. scan=True (varredura) pula a simulação dos ativos sem tendência, sem plano ou ilíquidos."""
     if len(bars) < MIN_BARS:
@@ -151,4 +175,5 @@ def analyze(symbol: str, bars: list[dict], replays: int = REPLAYS, scan: bool = 
            "resistance": lv["resistances"][0] if lv["resistances"] else None}
     if plan and (not scan or (t["up"] and out["liquid"])):
         out["odds"] = simulate(bars, plan["entry"], plan["stop"], plan["target"], replays)
+    out["recommend"] = recommendation(out)
     return out

@@ -57,7 +57,8 @@ def build_router(require_token) -> APIRouter:
             hits.sort(key=lambda h: (-h["odds"]["avg_r"], h["symbol"]))
             watch = [a for a in up if not a["setups"] and a["odds"]]
             watch.sort(key=lambda a: abs(a["dist_sma20_pct"]))   # mais perto da média de 20 = pullback mais próximo
-            return {"scanned": len(ok), "failed": len(rows) - len(ok), "uptrend": len(up),
+            best = next((h["symbol"] for h in hits if h["recommend"]["ok"]), None)
+            return {"best": best, "scanned": len(ok), "failed": len(rows) - len(ok), "uptrend": len(up),
                     "with_setup": sum(1 for a in up if a["setups"]), "with_plan": sum(1 for a in up if a["plan"]),
                     "hits": hits[:50], "watch": watch[:15], "as_of": datetime.now(timezone.utc).isoformat(),
                     "note": "Lista para estudar, não para comprar. Chance = simulação com o último ano do próprio ativo."}

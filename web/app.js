@@ -127,12 +127,29 @@ function scannerView() {
       h("span", { class: "muted" }, withSetup ? x.setups.map((t) => SETUPS[t] || t).join(", ") : `${fmt(Math.abs(x.dist_sma20_pct))}% ${x.dist_sma20_pct >= 0 ? "acima" : "abaixo"} da média de 20`),
       h("span", { class: "num " + (o.avg_r >= 0 ? "gain" : "loss") }, (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R esperado"),
       h("span", { class: "full" }, h("span", { class: "chance " + (good ? "gain" : "loss") }, `Chance de chegar ao alvo: ${Math.round(o.p_target * 100)}%`,
-        h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%) · stop −${fmt(x.plan.risk_pct)}% · alvo +${fmt(x.plan.target_pct)}% (${fmt(x.plan.target_r)}R)`))));
+        h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%) · stop −${fmt(x.plan.risk_pct)}% · alvo +${fmt(x.plan.target_pct)}% (${fmt(x.plan.target_r)}R)`)),
+        h("span", { class: "badge " + (x.recommend.ok ? "buy" : "no") }, x.recommend.ok ? "✔ Recomendada" : "✖ Não recomendada"),
+        h("span", { class: "muted small block" }, x.recommend.reason)));
+  };
+  const bestCard = (s) => {
+    const x = s.hits.find((y) => y.symbol === s.best);
+    if (!x) return h("div", { class: "reco none" }, h("strong", null, "Nenhuma ação recomendada para comprar hoje"),
+      h("p", null, s.hits.length ? "Há gatilho em " + s.hits.map((y) => y.symbol).join(", ") + ", mas a chance de chegar ao alvo não compensa o risco. Melhor esperar." : "Nenhuma ação em tendência de alta com gatilho de compra. Melhor esperar."));
+    const o = x.odds, p = x.plan;
+    return h("div", { class: "reco buy", role: "status" },
+      h("span", { class: "tag" }, "RECOMENDADA PARA COMPRAR"),
+      h("div", { class: "row" }, h("strong", { class: "big" }, x.symbol), h("span", { class: "num big" }, money(x.price))),
+      h("p", null, x.setups.map((t) => SETUPS[t] || t).join(", ") + " · " + x.recommend.reason),
+      h("div", { class: "row" }, h("span", null, "Stop"), h("span", { class: "num loss" }, money(p.stop))),
+      h("div", { class: "row" }, h("span", null, "Alvo"), h("span", { class: "num gain" }, money(p.target))),
+      h("div", { class: "row" }, h("span", null, "Chance de chegar ao alvo"), h("strong", { class: "num" }, Math.round(o.p_target * 100) + "% · " + (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R esperado")),
+      h("button", { onclick: () => selectSymbol(x.symbol) }, "Ver plano e comprar " + x.symbol));
   };
   const show = () => {
     const s = state.scan;
     if (!s) return;
     out.replaceChildren(
+      bestCard(s),
       h("p", { class: "muted" }, `${s.scanned} ações analisadas${s.failed ? " (" + s.failed + " sem dados do Yahoo)" : ""}: ${s.uptrend} em tendência de alta, ${s.with_setup} com gatilho de compra hoje, ${s.with_plan} com plano de stop válido.`),
       s.hits.length ? h("h2", null, "Com gatilho de compra") : h("div", { class: "card" }, h("strong", null, "Nenhum gatilho de compra hoje."),
         h("p", { class: "muted" }, "É normal: o método só compra a favor da tendência e espera o preço recuar até a média de 20, tocar um suporte ou romper uma resistência. Veja abaixo quem está em tendência de alta e pode chegar lá.")),
@@ -289,6 +306,8 @@ function assetView() {
   const draw = () => {
     const a = state.asset, p = a.plan, o = a.odds;
     out.replaceChildren(
+      h("div", { class: "reco " + (a.recommend.ok ? "buy" : "none"), role: "status" },
+        h("span", { class: "tag" }, a.recommend.ok ? "RECOMENDADA PARA COMPRAR" : "NÃO RECOMENDADA AGORA"), h("p", null, a.recommend.reason)),
       h("div", { class: "card stack" }, h("div", { class: "row" }, h("strong", null, a.setups.length ? a.setups.map((t) => SETUPS[t] || t).join(", ") : "Sem sinal agora"), h("span", { class: "num" }, money(a.price))),
         h("p", { class: a.trend.up ? "gain" : "loss" }, a.trend.up ? "Tendência de alta: preço acima da média de 50, média de 20 acima da de 50 e a de 50 subindo." : "Sem tendência de alta clara: o método só compra a favor da tendência."),
         h("p", { class: "muted" }, `Média 20: ${money(a.trend.sma20)} · Média 50: ${money(a.trend.sma50)} · Suporte: ${money(a.support)} · Resistência: ${money(a.resistance)}`),

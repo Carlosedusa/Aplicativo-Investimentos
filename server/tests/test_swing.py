@@ -102,3 +102,14 @@ def test_scan_reports_funnel_and_watchlist(client):
     assert r["hits"] == [] or all(h["setups"] for h in r["hits"])
     assert r["watch"] and all(not w["setups"] and w["odds"] for w in r["watch"])
     assert set(r) >= {"with_setup", "with_plan", "failed"}
+
+
+def test_recommendation_requires_edge():
+    a = model.analyze("PETR4", demo_bars("PETR4"))
+    good = dict(a, odds=dict(a["odds"], p_target=0.5, breakeven=0.3, avg_r=0.5))
+    bad = dict(a, odds=dict(a["odds"], p_target=0.1, breakeven=0.3, avg_r=-0.2))
+    assert model.recommendation(good)["ok"] is True
+    r = model.recommendation(bad)
+    assert r["ok"] is False and "abaixo do equilíbrio" in r["reason"]
+    assert model.recommendation(dict(a, setups=[]))["ok"] is False
+    assert model.recommendation(dict(a, trend={"up": False}))["ok"] is False

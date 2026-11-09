@@ -72,7 +72,8 @@ test("risk banner is visible on every screen", async () => {
 async function scan(page) {
   await page.getByRole("button", { name: "Varrer o Ibovespa" }).click();
   await page.getByText(/ações analisadas/).waitFor();
-  await page.getByText(/Chance de chegar ao alvo: \d+%/).first().waitFor();
+  await page.getByText(/Chance de chegar ao alvo/).first().waitFor();
+  await page.getByText(/RECOMENDADA PARA COMPRAR|Nenhuma ação recomendada/).first().waitFor();
 }
 
 test("swing scan to paper trade flow", async () => {
