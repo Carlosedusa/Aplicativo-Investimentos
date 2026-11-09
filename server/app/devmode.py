@@ -47,11 +47,11 @@ class DemoFeed:
     def last(self, symbol: str) -> float:
         return self.prices.get(symbol, 50.0)
 
-    def candles(self, symbol: str, limit: int = 40):
+    def candles(self, symbol: str, limit: int = 120):
         p, out = self.last(symbol), []
         for i in range(limit):
             base = p * (1 + 0.004 * ((i * 7) % 11 - 5) / 5)
-            out.append({"t": 1_700_000_000 + 900 * i, "o": round(base, 2), "h": round(base * 1.004, 2),
+            out.append({"t": 1_700_000_000 + 300 * i, "o": round(base, 2), "h": round(base * 1.004, 2),
                         "l": round(base * 0.996, 2), "c": round(base * (1.002 if i % 2 else 0.998), 2)})
         return out
 

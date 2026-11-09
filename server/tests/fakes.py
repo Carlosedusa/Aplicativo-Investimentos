@@ -20,7 +20,7 @@ class FakeFeed:
 
     def candles(self, symbol, limit=40):
         p = self.prices[symbol]
-        return [{"t": 1_700_000_000 + 900 * i, "o": p, "h": p + 1, "l": p - 1, "c": p} for i in range(3)]
+        return [{"t": 1_700_000_000 + 300 * i, "o": p, "h": p + 1, "l": p - 1, "c": p} for i in range(3)]
 
     def range(self, symbol, since):
         from app.paper.prices import PriceError

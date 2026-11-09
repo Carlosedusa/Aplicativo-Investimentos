@@ -41,9 +41,9 @@ class YahooPriceFeed:
     def last(self, symbol: str) -> float:
         return float(self._bars(symbol)["price"])
 
-    def candles(self, symbol: str, limit: int = 40) -> list[dict]:
-        """Velas de 15 minutos (últimos pregões), da mais antiga para a mais nova."""
-        url = "https://query2.finance.yahoo.com/v8/finance/chart/%s?range=5d&interval=15m" % symbol
+    def candles(self, symbol: str, limit: int = 400) -> list[dict]:
+        """Velas de 5 minutos (últimos pregões), da mais antiga para a mais nova."""
+        url = "https://query2.finance.yahoo.com/v8/finance/chart/%s?range=5d&interval=5m" % symbol
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=15) as resp:

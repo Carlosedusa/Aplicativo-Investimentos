@@ -68,3 +68,8 @@ a { color: var(--ink); text-decoration-color: var(--flat); text-underline-offset
 .chart .lt, .chart .lbl.lt { stroke: var(--gain); fill: var(--gain); } .chart .ls, .chart .lbl.ls { stroke: var(--loss); fill: var(--loss); }
 .chart .le, .chart .lbl.le { stroke: var(--ink); fill: var(--ink); }
 .chart text { stroke: none; font-size: 9px; font-weight: 700; }
+.chart { touch-action: none; cursor: grab; user-select: none; } .chart:active { cursor: grabbing; }
+.chart .lbl.ax { fill: var(--muted); stroke: none; font-weight: 400; }
+.tools, .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+button.mini { min-height: 36px; padding: 6px 12px; font-size: 14px; }
+.small { font-size: 12px; }

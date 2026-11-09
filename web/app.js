@@ -161,49 +161,102 @@ function selectSymbol(sym) {
   go("ativo");
 }
 
-// ---------- gráfico de velas (15 min) com entrada, stop e alvo
-function candleChart(candles, { entry, stop, target }) {
-  const NS = "http://www.w3.org/2000/svg";
-  const el = (t, at, txt) => { const e = document.createElementNS(NS, t); for (const [k, v] of Object.entries(at)) e.setAttribute(k, v); if (txt) e.textContent = txt; return e; };
-  const W = 360, H = 220, PR = 54, PT = 8, PB = 8;
-  const levels = [entry, stop, target].filter((v) => typeof v === "number");
-  const lo = Math.min(...candles.map((c) => c.l), ...levels), hi = Math.max(...candles.map((c) => c.h), ...levels);
-  const pad = (hi - lo) * 0.06 || 1, min = lo - pad, max = hi + pad;
-  const y = (v) => PT + (H - PT - PB) * (1 - (v - min) / (max - min));
-  const step = (W - PR) / candles.length, bw = Math.max(2, step * 0.6);
-  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": "Gráfico de velas de 15 minutos com entrada, stop e alvo" });
-  candles.forEach((c, i) => {
-    const x = step * i + step / 2, up = c.c >= c.o, cls = up ? "cu" : "cd";
-    svg.append(el("line", { x1: x, x2: x, y1: y(c.h), y2: y(c.l), class: cls }));
-    svg.append(el("rect", { x: x - bw / 2, width: bw, y: Math.min(y(c.o), y(c.c)), height: Math.max(1, Math.abs(y(c.o) - y(c.c))), class: cls + " body" }));
-  });
-  [[target, "Alvo", "lt"], [entry, "Entrada", "le"], [stop, "Stop", "ls"]].forEach(([v, name, cls]) => {
-    if (typeof v !== "number") return;
-    svg.append(el("line", { x1: 0, x2: W - PR, y1: y(v), y2: y(v), class: "lvl " + cls }));
-    svg.append(el("text", { x: W - PR + 3, y: y(v) - 2, class: "lbl " + cls }, name));
-    svg.append(el("text", { x: W - PR + 3, y: y(v) + 9, class: "lbl " + cls }, v.toFixed(2)));
-  });
-  return svg;
-}
-
-// Atualiza sozinho a cada 10 s enquanto estiver na tela (para quando sai dela).
+// ---------- gráfico de velas (5 min) com entrada, stop e alvo; zoom e arrasto
 function chartCard(symbol, levels, title) {
-  const head = h("h2", null, title || "Gráfico · velas de 15 min");
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (t, at, txt) => { const e = document.createElementNS(NS, t); for (const [k, v] of Object.entries(at)) e.setAttribute(k, v); if (txt != null) e.textContent = txt; return e; };
+  const W = 360, H = 260, PR = 54, PT = 8, PB = 8, PW = W - PR, PH = H - PT - PB;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": "Gráfico de velas de 5 minutos com entrada, stop e alvo" });
   const stamp = h("p", { class: "muted" }, "Carregando gráfico…");
-  const holder = h("div");
-  const box = h("div", { class: "card stack" }, head, holder, stamp);
+  const msg = h("div");
+  let candles = [], view = null; // view = {x0,x1,y0,y1} em coordenadas de dados (x = nº da vela, y = preço)
+  const lv = [levels.target, levels.entry, levels.stop].filter((v) => typeof v === "number");
+
+  const fit = () => {
+    const n = candles.length, from = Math.max(0, n - 78); // ~1 pregão
+    const sl = candles.slice(from);
+    const lo = Math.min(...sl.map((c) => c.l), ...lv), hi = Math.max(...sl.map((c) => c.h), ...lv), pad = (hi - lo) * 0.06 || 1;
+    view = { x0: from - 0.5, x1: n + 3, y0: lo - pad, y1: hi + pad };
+  };
+  const draw = () => {
+    if (!candles.length) return;
+    if (!view) fit();
+    const { x0, x1, y0, y1 } = view;
+    const X = (i) => ((i - x0) / (x1 - x0)) * PW, Y = (v) => PT + PH * (1 - (v - y0) / (y1 - y0));
+    const bw = Math.max(1.5, (PW / (x1 - x0)) * 0.6);
+    const clip = el("clipPath", { id: "clip-" + symbol }); clip.append(el("rect", { x: 0, y: 0, width: PW, height: H }));
+    const g = el("g", { "clip-path": `url(#clip-${symbol})` });
+    candles.forEach((c, i) => {
+      if (i < x0 - 1 || i > x1 + 1) return;
+      const up = c.c >= c.o, cls = up ? "cu" : "cd", x = X(i);
+      g.append(el("line", { x1: x, x2: x, y1: Y(c.h), y2: Y(c.l), class: cls }));
+      g.append(el("rect", { x: x - bw / 2, width: bw, y: Math.min(Y(c.o), Y(c.c)), height: Math.max(1, Math.abs(Y(c.o) - Y(c.c))), class: cls + " body" }));
+    });
+    const parts = [el("defs", {}), g];
+    parts[0].append(clip);
+    [[levels.target, "Alvo", "lt"], [levels.entry, "Entrada", "le"], [levels.stop, "Stop", "ls"]].forEach(([v, name, cls]) => {
+      if (typeof v !== "number") return;
+      const yy = Math.max(PT + 10, Math.min(H - PB - 10, Y(v))), out = Y(v) < PT || Y(v) > H - PB;
+      if (!out) parts.push(el("line", { x1: 0, x2: PW, y1: yy, y2: yy, class: "lvl " + cls }));
+      parts.push(el("text", { x: PW + 3, y: yy - 2, class: "lbl " + cls }, (out ? (Y(v) < PT ? "▲ " : "▼ ") : "") + name));
+      parts.push(el("text", { x: PW + 3, y: yy + 9, class: "lbl " + cls }, v.toFixed(2)));
+    });
+    for (let k = 0; k <= 4; k++) { const v = y0 + ((y1 - y0) * k) / 4; parts.push(el("text", { x: PW + 3, y: Y(v) + 3, class: "lbl ax" }, k % 2 ? "" : v.toFixed(2))); }
+    svg.replaceChildren(...parts);
+  };
+
+  // zoom (roda do mouse, pinça, botões) e arrasto nos dois eixos
+  const toData = (sx, sy) => ({ x: view.x0 + (sx / PW) * (view.x1 - view.x0), y: view.y1 - ((sy - PT) / PH) * (view.y1 - view.y0) });
+  const zoom = (f, sx, sy, only) => {
+    if (!view) return;
+    const a = toData(sx, sy);
+    if (only !== "y" && (view.x1 - view.x0) * f >= 5 && (view.x1 - view.x0) * f <= 2000) { view.x0 = a.x - (a.x - view.x0) * f; view.x1 = a.x + (view.x1 - a.x) * f; }
+    if (only !== "x") { view.y0 = a.y - (a.y - view.y0) * f; view.y1 = a.y + (view.y1 - a.y) * f; }
+    draw();
+  };
+  const pt = (e) => { const r = svg.getBoundingClientRect(); return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H]; };
+  const ptrs = new Map(); let pinch = 0;
+  svg.addEventListener("wheel", (e) => { e.preventDefault(); const [sx, sy] = pt(e); zoom(e.deltaY < 0 ? 0.85 : 1 / 0.85, sx, sy, e.shiftKey ? "y" : null); }, { passive: false });
+  svg.addEventListener("pointerdown", (e) => { svg.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, pt(e)); pinch = 0; });
+  svg.addEventListener("pointermove", (e) => {
+    if (!ptrs.has(e.pointerId) || !view) return;
+    const prev = ptrs.get(e.pointerId), cur = pt(e); ptrs.set(e.pointerId, cur);
+    if (ptrs.size >= 2) {
+      const [p, q] = [...ptrs.values()], d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+      if (pinch) zoom(pinch / d, (p[0] + q[0]) / 2, (p[1] + q[1]) / 2);
+      pinch = d; return;
+    }
+    const dx = ((cur[0] - prev[0]) / PW) * (view.x1 - view.x0); view.x0 -= dx; view.x1 -= dx;
+    const dy = ((cur[1] - prev[1]) / PH) * (view.y1 - view.y0); view.y0 += dy; view.y1 += dy;
+    draw();
+  });
+  const up = (e) => { ptrs.delete(e.pointerId); pinch = 0; };
+  svg.addEventListener("pointerup", up); svg.addEventListener("pointercancel", up);
+  svg.addEventListener("dblclick", () => { fit(); draw(); });
+
+  const btn = (label, name, fn) => h("button", { class: "ghost mini", "aria-label": name, title: name, onclick: fn }, label);
+  const tools = h("div", { class: "tools" },
+    btn("+", "Aproximar", () => zoom(0.7, PW / 2, H / 2)), btn("−", "Afastar", () => zoom(1 / 0.7, PW / 2, H / 2)),
+    btn("↕+", "Ampliar só o preço", () => zoom(0.7, PW / 2, H / 2, "y")), btn("↕−", "Reduzir só o preço", () => zoom(1 / 0.7, PW / 2, H / 2, "y")),
+    btn("⟲", "Voltar ao padrão", () => { fit(); draw(); }));
+  const box = h("div", { class: "card stack" }, h("h2", null, title || "Gráfico · velas de 5 min"), tools, msg, svg, stamp,
+    h("p", { class: "muted small" }, "Arraste para mover (tempo e preço). Roda do mouse ou pinça dá zoom; Shift + roda amplia só o preço. Toque duplo volta ao padrão."));
+
   let timer = null, started = false;
   const load = async () => {
-    if (!box.isConnected && started) { clearInterval(timer); timer = null; started = false; return; }
+    if (started && !box.isConnected) { clearInterval(timer); started = false; return; }
     try {
       const d = await api("/candles/" + symbol);
-      const last = d.candles[d.candles.length - 1];
-      holder.replaceChildren(candleChart(d.candles, levels));
-      stamp.textContent = `Atualiza sozinho a cada 10 s · último preço ${money(last && last.c)} · ${new Date().toLocaleTimeString("pt-BR")}. Verde: alvo. Vermelho: stop. Escura: entrada.`;
-    } catch (e) { if (!holder.firstChild) holder.replaceChildren(errorBox(e)); else stamp.textContent = "Sem atualização agora; tentando de novo…"; }
+      const wasEnd = view && view.x1 >= candles.length; // se estava no fim, acompanha as velas novas
+      const shift = d.candles.length - candles.length;
+      candles = d.candles; msg.replaceChildren();
+      if (view && wasEnd && shift > 0) { view.x0 += shift; view.x1 += shift; }
+      draw();
+      const last = candles[candles.length - 1];
+      stamp.textContent = `Atualiza a cada 10 s · último preço ${money(last && last.c)} · ${new Date().toLocaleTimeString("pt-BR")}`;
+    } catch (e) { if (!candles.length) msg.replaceChildren(errorBox(e)); else stamp.textContent = "Sem atualização agora; tentando de novo…"; }
   };
-  box.start = () => { if (started) return; started = true; load(); timer = setInterval(load, 10000); };
-  queueMicrotask(() => setTimeout(box.start, 0));
+  setTimeout(() => { started = true; load(); timer = setInterval(load, 10000); }, 0);
   return box;
 }
 
@@ -336,10 +389,15 @@ function ticketView() {
 // ---------- carteira
 function walletView() {
   const out = h("div", { class: "stack" });
-  const charts = new Map(); // um gráfico por posição, mantido entre as atualizações
-  const chartFor = (p) => {
-    if (!charts.has(p.id)) charts.set(p.id, chartCard(p.symbol, { entry: p.entry, stop: p.stop, target: p.target }, `Gráfico · ${p.symbol} (15 min)`));
-    return charts.get(p.id);
+  // Um único gráfico fixo; com várias posições, escolha qual acompanhar.
+  let picked = null, chart = null, chartId = null;
+  const chartFor = (positions) => {
+    if (!positions.length) { chart = chartId = null; return null; }
+    const p = positions.find((x) => x.id === picked) || positions[0];
+    if (chartId !== p.id) { chartId = p.id; chart = chartCard(p.symbol, { entry: p.entry, stop: p.stop, target: p.target }, `Gráfico · ${p.symbol} (5 min)`); }
+    const pick = positions.length > 1 && h("div", { class: "chips" }, positions.map((x) => h("button", {
+      class: x.id === p.id ? "mini" : "ghost mini", onclick: () => { picked = x.id; draw(); } }, x.symbol)));
+    return h("div", { class: "stack" }, pick, chart);
   };
   const draw = () => {
     const { account: a, positions, history } = state.wallet;
@@ -353,7 +411,7 @@ function walletView() {
         positions.length ? h("ul", { class: "plain" }, positions.map((p) => h("li", { class: "row" },
           h("span", null, h("strong", null, `${p.qty} ${p.symbol}`), h("span", { class: "muted" }, " a " + money(p.entry))),
           h("span", { class: "num " + cls(p.open_pnl) }, money(p.open_pnl))))) : h("p", { class: "muted" }, "Nenhuma posição. Monte uma ordem de teste a partir do Scanner.")),
-      ...positions.map(chartFor),
+      chartFor(positions),
       h("div", { class: "card" }, h("h2", null, "Histórico"),
         history.length ? h("ul", { class: "plain" }, history.map((t) => h("li", { class: "row" },
           h("span", null, h("strong", null, `${t.qty} ${t.symbol}`), h("span", { class: "muted" }, " fechou no " + ({ stop: "stop", target: "alvo", eod: "fim do dia" })[t.reason])),

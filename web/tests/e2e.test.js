@@ -92,7 +92,7 @@ test("scan to paper trade flow", async () => {
   await page.getByText("Ordem de teste enviada.").waitFor();
   await page.getByText("8 TSLA").waitFor();
   await page.locator("svg.chart").waitFor(); // gráfico da posição na carteira
-  await page.getByText("Atualiza sozinho a cada 10 s").waitFor();
+  await page.getByText("Atualiza a cada 10 s").waitFor();
   await shot(page, "5-carteira");
   const r = await fetch(`http://127.0.0.1:${port}/paper/positions`, { headers: { Authorization: "Bearer " + TOKEN } });
   const pos = await r.json();
@@ -111,4 +111,24 @@ test("blocked order cannot be confirmed", async () => {
   await page.getByRole("button", { name: "Calcular tamanho" }).click();
   await page.getByText("Bloqueado pelo Risco").waitFor();
   assert.equal(await page.getByRole("button", { name: "Confirmar ordem de teste" }).isDisabled(), true);
+});
+
+test("chart zooms and pans", async () => {
+  const page = await newPage();
+  await login(page);
+  await page.getByRole("button", { name: "Rompimento da abertura (populares)" }).click();
+  await page.getByRole("button", { name: /^TSLA/ }).click();
+  await page.locator("svg.chart").waitFor();
+  const svg = page.locator("svg.chart");
+  await page.waitForFunction(() => document.querySelectorAll("svg.chart rect.body").length > 0);
+  const n0 = await svg.locator("rect.body").count();
+  await page.getByRole("button", { name: "Aproximar" }).click();
+  const n1 = await svg.locator("rect.body").count();
+  assert.ok(n1 < n0, "zoom reduz o número de velas visíveis");
+  const before = await svg.locator("rect.body").first().getAttribute("x");
+  const box = await svg.boundingBox();
+  await page.mouse.move(box.x + 100, box.y + 100);
+  await page.mouse.down(); await page.mouse.move(box.x + 160, box.y + 130, { steps: 5 }); await page.mouse.up();
+  const after = await svg.locator("rect.body").first().getAttribute("x");
+  assert.notEqual(before, after, "arrastar move o gráfico");
 });

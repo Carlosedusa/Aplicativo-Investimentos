@@ -59,7 +59,7 @@
     "/candles/{symbol}": {
       "get": {
         "summary": "Candles",
-        "description": "Velas de 15 minutos para o gráfico.",
+        "description": "Velas de 5 minutos para o gráfico.",
         "operationId": "candles_candles__symbol__get",
         "parameters": [
           {
