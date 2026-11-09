@@ -29,7 +29,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ScanBody"
+                "$ref": "#/components/schemas/app__routes_analysis__ScanBody"
               }
             }
           }
@@ -515,6 +515,42 @@
       "post": {
         "summary": "Scan",
         "operationId": "scan_swing_scan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__routes_swing__ScanBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swing/scan/progress": {
+      "get": {
+        "summary": "Scan Progress",
+        "operationId": "scan_progress_swing_scan_progress_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -846,57 +882,6 @@
         ],
         "title": "OddsHit"
       },
-      "ScanBody": {
-        "properties": {
-          "popular": {
-            "type": "boolean",
-            "title": "Popular",
-            "default": false
-          },
-          "symbols": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array",
-                "maxItems": 500
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Symbols"
-          },
-          "at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "At"
-          },
-          "limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 20000.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Limit"
-          }
-        },
-        "type": "object",
-        "title": "ScanBody"
-      },
       "TimeMachineBody": {
         "properties": {
           "until": {
@@ -965,6 +950,57 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "app__routes_analysis__ScanBody": {
+        "properties": {
+          "popular": {
+            "type": "boolean",
+            "title": "Popular",
+            "default": false
+          },
+          "symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbols"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 20000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "title": "ScanBody"
       },
       "app__routes_paper__OrderBody": {
         "properties": {
@@ -1055,6 +1091,21 @@
           "max_loss"
         ],
         "title": "OrderBody"
+      },
+      "app__routes_swing__ScanBody": {
+        "properties": {
+          "universe": {
+            "type": "string",
+            "enum": [
+              "ibov",
+              "all"
+            ],
+            "title": "Universe",
+            "default": "ibov"
+          }
+        },
+        "type": "object",
+        "title": "ScanBody"
       }
     }
   }

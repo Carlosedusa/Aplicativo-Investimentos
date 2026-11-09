@@ -1,5 +1,6 @@
 import re
 import time
+from typing import Literal
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -12,9 +13,13 @@ from .paper.broker import PaperError
 from .paper.prices import PriceError
 from .swing import model, rules
 from .swing.market import entry_window
-from .swing.universe import IBOV
+from .swing.universe import ALL_B3, IBOV, universe
 
 SYMBOL = r"^[A-Za-z]{4}\d{1,2}$"
+
+
+class ScanBody(BaseModel):
+    universe: Literal["ibov", "all"] = "ibov"
 
 
 class OrderBody(BaseModel):
@@ -32,25 +37,32 @@ def build_router(require_token) -> APIRouter:
     def market(request: Request):
         now = request.app.state.clock()
         reasons = entry_window(now)
-        return {"open": not reasons, "reasons": reasons, "universe": len(IBOV), "horizon_days": model.HORIZON}
+        return {"open": not reasons, "reasons": reasons, "universe": len(IBOV), "universe_all": len(ALL_B3),
+                "horizon_days": model.HORIZON}
 
     @r.post("/swing/scan")
-    def scan(request: Request):
+    def scan(body: ScanBody, request: Request):
         source = request.app.state.swing_source
+        symbols = universe(body.universe)
+        progress = request.app.state.scan_progress = {"done": 0, "total": len(symbols), "universe": body.universe}
 
         def one(sym):
+            err = ""
             for attempt in (0, 1):  # uma nova tentativa: o Yahoo às vezes recusa pedidos em sequência
                 try:
-                    return sym, model.analyze(sym, source(sym), scan=True), None
+                    res = sym, model.analyze(sym, source(sym), scan=True), None
+                    progress["done"] += 1
+                    return res
                 except Exception as e:  # um ticker que falha não derruba a varredura
                     err = str(e)
                     if attempt == 0:
-                        time.sleep(1.0)
+                        time.sleep(1.5)
+            progress["done"] += 1
             return sym, None, err
 
         def job():
             with ThreadPoolExecutor(max_workers=6) as pool:
-                rows = list(pool.map(one, IBOV))
+                rows = list(pool.map(one, symbols))
             ok = [a for _, a, e in rows if a]
             up = [a for a in ok if a["trend"]["up"] and a["liquid"]]
             hits = [a for a in up if a["setups"] and a["odds"]]
@@ -60,10 +72,14 @@ def build_router(require_token) -> APIRouter:
             best = next((h["symbol"] for h in hits if h["recommend"]["ok"]), None)
             return {"best": best, "scanned": len(ok), "failed": len(rows) - len(ok), "uptrend": len(up),
                     "with_setup": sum(1 for a in up if a["setups"]), "with_plan": sum(1 for a in up if a["plan"]),
-                    "hits": hits[:50], "watch": watch[:15], "as_of": datetime.now(timezone.utc).isoformat(),
+                    "universe": body.universe, "total": len(symbols), "hits": hits[:50], "watch": watch[:15], "as_of": datetime.now(timezone.utc).isoformat(),
                     "note": "Lista para estudar, não para comprar. Chance = simulação com o último ano do próprio ativo."}
 
         return {"task_id": request.app.state.tasks.submit(job)}
+
+    @r.get("/swing/scan/progress")
+    def scan_progress(request: Request):
+        return getattr(request.app.state, "scan_progress", {"done": 0, "total": 0, "universe": None})
 
     def analysis(request: Request, symbol: str) -> dict:
         if not re.match(SYMBOL, symbol):

@@ -43,7 +43,7 @@ def test_rules_block_and_size():
 
 def test_scan_ranks_by_expected_r(client):
     client.app.state.swing_source = demo_swing_source
-    r = client.post("/swing/scan", headers=AUTH)
+    r = client.post("/swing/scan", json={}, headers=AUTH)
     t = _wait(client, r.json()["task_id"])
     assert t["status"] == "done"
     hits = t["result"]["hits"]
@@ -96,7 +96,7 @@ def test_scan_reports_funnel_and_watchlist(client):
         return [{"t": 1_700_000_000 + 86400 * i, "o": 10 + i * 0.1, "h": 10.3 + i * 0.1, "l": 9.8 + i * 0.1,
                  "c": 10.1 + i * 0.1, "v": 5_000_000} for i in range(120)]
     client.app.state.swing_source = source
-    t = _wait(client, client.post("/swing/scan", headers=AUTH).json()["task_id"])
+    t = _wait(client, client.post("/swing/scan", json={}, headers=AUTH).json()["task_id"])
     r = t["result"]
     assert t["status"] == "done" and r["scanned"] > 0 and r["uptrend"] == r["scanned"]
     assert r["hits"] == [] or all(h["setups"] for h in r["hits"])
@@ -113,3 +113,13 @@ def test_recommendation_requires_edge():
     assert r["ok"] is False and "abaixo do equilíbrio" in r["reason"]
     assert model.recommendation(dict(a, setups=[]))["ok"] is False
     assert model.recommendation(dict(a, trend={"up": False}))["ok"] is False
+
+
+def test_scan_all_b3_covers_more_tickers_and_reports_progress(client):
+    from app.swing.universe import ALL_B3, IBOV
+    assert len(ALL_B3) > 2 * len(IBOV) and len(set(ALL_B3)) == len(ALL_B3)
+    client.app.state.swing_source = demo_swing_source
+    t = _wait(client, client.post("/swing/scan", json={"universe": "all"}, headers=AUTH).json()["task_id"])
+    assert t["status"] == "done" and t["result"]["total"] == len(ALL_B3) and t["result"]["scanned"] > len(IBOV)
+    p = client.get("/swing/scan/progress", headers=AUTH).json()
+    assert p["done"] == p["total"] == len(ALL_B3)

@@ -150,7 +150,7 @@ function scannerView() {
     if (!s) return;
     out.replaceChildren(
       bestCard(s),
-      h("p", { class: "muted" }, `${s.scanned} ações analisadas${s.failed ? " (" + s.failed + " sem dados do Yahoo)" : ""}: ${s.uptrend} em tendência de alta, ${s.with_setup} com gatilho de compra hoje, ${s.with_plan} com plano de stop válido.`),
+      h("p", { class: "muted" }, `${s.scanned} ações analisadas (${s.universe === "all" ? "toda a B3" : "Ibovespa"})${s.failed ? " (" + s.failed + " sem dados do Yahoo)" : ""}: ${s.uptrend} em tendência de alta, ${s.with_setup} com gatilho de compra hoje, ${s.with_plan} com plano de stop válido.`),
       s.hits.length ? h("h2", null, "Com gatilho de compra") : h("div", { class: "card" }, h("strong", null, "Nenhum gatilho de compra hoje."),
         h("p", { class: "muted" }, "É normal: o método só compra a favor da tendência e espera o preço recuar até a média de 20, tocar um suporte ou romper uma resistência. Veja abaixo quem está em tendência de alta e pode chegar lá.")),
       ...s.hits.map((x) => card(x, true)),
@@ -158,13 +158,17 @@ function scannerView() {
       ...(s.watch || []).map((x) => card(x, false)),
       h("p", { class: "muted small" }, "Chance = 2.000 simulações com o último ano do próprio ativo, até 15 pregões; stop abaixo do último pivô de baixa, alvo na próxima resistência. Não é previsão."));
   };
-  const run = async () => {
-    const t0 = Date.now();
-    const msg = h("p", { class: "spinner", role: "status" }, "Varrendo o Ibovespa…");
+  const run = async (kind) => {
+    const t0 = Date.now(), label = kind === "all" ? "toda a B3" : "o Ibovespa";
+    const msg = h("p", { class: "spinner", role: "status" }, `Varrendo ${label}…`);
     out.replaceChildren(brainSvg(), msg);
-    const timer = setInterval(() => { msg.textContent = `Varrendo o Ibovespa… ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
+    let prog = "";
+    const timer = setInterval(async () => {
+      try { const p = await api("/swing/scan/progress"); if (p.total) prog = ` ${p.done} de ${p.total} ações ·`; } catch { /* segue sem o contador */ }
+      msg.textContent = `Varrendo ${label}…${prog} ${Math.round((Date.now() - t0) / 1000)} s`;
+    }, 1000);
     try {
-      const { task_id } = await api("/swing/scan", { method: "POST" });
+      const { task_id } = await api("/swing/scan", { method: "POST", body: { universe: kind } });
       state.scan = await waitTask(task_id);
       show();
     } catch (e) { out.replaceChildren(errorBox(e)); }
@@ -172,10 +176,11 @@ function scannerView() {
   };
   show();
   return h("section", { class: "stack" },
-    h("h1", null, "Scanner · Ibovespa"),
+    h("h1", null, "Scanner · B3"),
     h("p", { class: "muted" }, "Seguimento de tendência (swing): operações de alguns dias a poucas semanas em ações da B3. É uma lista para estudar, não para comprar."),
     trainBox(),
-    h("button", { onclick: run }, "Varrer o Ibovespa"),
+    h("button", { onclick: () => run("ibov") }, "Varrer o Ibovespa (rápido)"),
+    h("button", { class: "ghost", onclick: () => run("all") }, "Varrer toda a B3 (lento, 1 a 3 min)"),
     out);
 }
 
