@@ -28,7 +28,7 @@ def _chart(tm, symbol):
     hit = _charts.get(symbol)
     if hit and time.monotonic() - hit[0] < 600:
         return hit[1]
-    text = _chart(tm, symbol)
+    text = tm.fetch_chart(symbol)
     _charts[symbol] = (time.monotonic(), text)
     return text
 

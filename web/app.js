@@ -81,6 +81,8 @@ function loginView(msg) {
 }
 
 // ---------- scanner
+const SETUPS = { breakout_20d: "Rompeu máxima de 20 dias", bull_flag: "Bandeira de alta", reclaim_ma20: "Retomou a média de 20",
+  oversold: "Sobrevendida (RSI<30)", oversold_bounce: "Rebote após sobrevenda", orb: "Rompimento da abertura" };
 // Maior oportunidade primeiro: no rompimento, quanto acima da faixa (pct_over); no pré-mercado, mantém a ordem do servidor.
 function rankHits(hits) {
   const score = (x) => (typeof x.pct_over === "number" ? x.pct_over : null);
@@ -130,10 +132,10 @@ function scannerView() {
   const row = (hit) => {
     const o = oddsOf[hit.symbol];
     const line2 = hit.at ? "rompeu às " + hit.at : "fechou em " + (hit.close_date || "—") + (hit.rsi != null ? " · RSI " + fmt(hit.rsi) : "");
-    const right = hit.pct_over != null ? h("span", { class: "num gain" }, "+" + fmt(hit.pct_over) + "%") : h("span", { class: "muted" }, (hit.setups || []).join(", "));
+    const right = hit.pct_over != null ? h("span", { class: "num gain" }, "+" + fmt(hit.pct_over) + "%") : h("span", { class: "muted" }, (hit.setups || []).map((s) => SETUPS[s] || s).join(", "));
     let chance;
     if (!o) chance = pending.has(hit.symbol) ? h("span", { class: "muted small" }, "Calculando chance…") : h("span", { class: "muted small" }, "Toque para ver o plano e simular");
-    else if (o.error) chance = h("span", { class: "muted small" }, "Chance indisponível");
+    else if (o.error) chance = h("span", { class: "muted small", title: o.error }, "Chance indisponível: " + String(o.error).slice(0, 80));
     else {
       const p = o.p_target, good = p >= o.breakeven;
       chance = h("span", { class: "chance " + (good ? "gain" : "loss") }, `Chance de chegar ao alvo: ${Math.round(p * 100)}%`,
