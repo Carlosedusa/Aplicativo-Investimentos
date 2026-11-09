@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 import urllib.request
 from datetime import datetime
 from typing import Protocol
@@ -41,8 +43,20 @@ class YahooPriceFeed:
     def last(self, symbol: str) -> float:
         return float(self._bars(symbol)["price"])
 
+    _cache: dict = {}
+    _lock = threading.Lock()
+
     def candles(self, symbol: str, limit: int = 400) -> list[dict]:
-        """Velas de 5 minutos (últimos pregões), da mais antiga para a mais nova."""
+        """Velas de 5 minutos (últimos pregões). Guarda 1 s: vários cliques/telas viram uma só ida ao Yahoo."""
+        with self._lock:
+            hit = self._cache.get(symbol)
+            if hit and time.monotonic() - hit[0] < 1.0:
+                return hit[1]
+            rows = self._candles(symbol, limit)
+            self._cache[symbol] = (time.monotonic(), rows)
+            return rows
+
+    def _candles(self, symbol: str, limit: int) -> list[dict]:
         url = "https://query2.finance.yahoo.com/v8/finance/chart/%s?range=5d&interval=5m" % symbol
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})

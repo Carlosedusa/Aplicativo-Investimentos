@@ -92,7 +92,7 @@ test("scan to paper trade flow", async () => {
   await page.getByText("Ordem de teste enviada.").waitFor();
   await page.getByText("8 TSLA").waitFor();
   await page.locator("svg.chart").waitFor(); // gráfico da posição na carteira
-  await page.getByText("Atualiza a cada 10 s").waitFor();
+  await page.getByText("Atualiza a cada 1 s").waitFor();
   await shot(page, "5-carteira");
   const r = await fetch(`http://127.0.0.1:${port}/paper/positions`, { headers: { Authorization: "Bearer " + TOKEN } });
   const pos = await r.json();

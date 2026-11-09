@@ -243,8 +243,11 @@ function chartCard(symbol, levels, title) {
     h("p", { class: "muted small" }, "Arraste para mover (tempo e preço). Roda do mouse ou pinça dá zoom; Shift + roda amplia só o preço. Toque duplo volta ao padrão."));
 
   let timer = null, started = false;
+  let busy = false;
   const load = async () => {
     if (started && !box.isConnected) { clearInterval(timer); started = false; return; }
+    if (busy) return; // não empilha pedidos se a rede estiver lenta
+    busy = true;
     try {
       const d = await api("/candles/" + symbol);
       const wasEnd = view && view.x1 >= candles.length; // se estava no fim, acompanha as velas novas
@@ -253,10 +256,11 @@ function chartCard(symbol, levels, title) {
       if (view && wasEnd && shift > 0) { view.x0 += shift; view.x1 += shift; }
       draw();
       const last = candles[candles.length - 1];
-      stamp.textContent = `Atualiza a cada 10 s · último preço ${money(last && last.c)} · ${new Date().toLocaleTimeString("pt-BR")}`;
+      stamp.textContent = `Atualiza a cada 1 s · último preço ${money(last && last.c)} · ${new Date().toLocaleTimeString("pt-BR")}`;
     } catch (e) { if (!candles.length) msg.replaceChildren(errorBox(e)); else stamp.textContent = "Sem atualização agora; tentando de novo…"; }
+    finally { busy = false; }
   };
-  setTimeout(() => { started = true; load(); timer = setInterval(load, 10000); }, 0);
+  setTimeout(() => { started = true; load(); timer = setInterval(load, 1000); }, 0);
   return box;
 }
 
