@@ -104,7 +104,24 @@ function trainBox() {
   return h("div", { class: "card stack" }, status,
     h("label", { style: "display:flex;gap:8px;align-items:center;font-size:14px" }, box, "Modo treino: ignorar o horário do mercado"));
 }
-const ptReason = (r) => r.startsWith("window:") ? "Fora do horário de entrada do mercado (Nova York). Ligue o Modo treino para simular." : r;
+const REASONS = {
+  window: "Fora do horário de entrada do mercado (Nova York). Ligue o Modo treino para simular.",
+  loss: "A perda no stop passa do seu limite por operação. Aumente a Perda máxima ou reduza a quantidade.",
+  "reward:risk": "O ganho no alvo é pequeno demais perto do risco no stop (abaixo do mínimo configurado).",
+  cash: "Falta caixa: a compra deixaria o saldo abaixo da reserva ou exigiria dinheiro emprestado.",
+  position: "A posição ficaria grande demais para a conta (limite por ativo).",
+  size: "Valor da ordem fora do mínimo ou do máximo permitido.",
+  "daily loss": "A soma das perdas possíveis do dia passaria do limite diário.",
+  trades: "Você já atingiu o limite de operações de hoje.",
+  "daily limit": "Você já atingiu o limite de ordens de hoje.",
+  duplicate: "Já existe uma ordem igual a esta hoje.",
+  stop: "Stop ausente ou do lado errado do preço de entrada.",
+  target: "Alvo do lado errado do preço de entrada.",
+  price: "Sem preço atual para calcular a ordem.",
+  blocked: "Este ativo está na sua lista de bloqueados.",
+};
+// A chance de chegar ao alvo (Scanner) NÃO entra no Risco: o Risco só confere limites de dinheiro, horário e plano.
+const ptReason = (r) => { const k = String(r).split(":")[0]; return REASONS[k] ? [REASONS[k], h("span", { class: "muted small" }, " (" + r + ")")] : r; };
 
 function brainSvg() {
   const NS = "http://www.w3.org/2000/svg";
