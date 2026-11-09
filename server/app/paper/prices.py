@@ -61,8 +61,9 @@ class YahooPriceFeed:
         key = (symbol, interval)
         with self._lock:
             hit = self._cache.get(key)
-            if hit and time.monotonic() - hit[0] < 1.0:
-                return hit[1][-limit:]
+        if hit and time.monotonic() - hit[0] < (1.0 if interval == "5m" else 30.0):
+            return hit[1][-limit:]
+        if True:  # a rede é consultada fora do lock: um Yahoo lento não trava as outras telas
             try:
                 res = self._get(symbol, self.CANDLE_RANGE[interval])
                 q = res["indicators"]["quote"][0]
@@ -72,7 +73,8 @@ class YahooPriceFeed:
             except Exception as e:
                 raise PriceError("Sem gráfico de %s agora (Yahoo indisponível ou símbolo desconhecido)." % symbol) from e
             rows = [{k: (v if k == "t" else round(float(v), 2)) for k, v in r.items()} for r in rows]
-            self._cache[key] = (time.monotonic(), rows)
+            with self._lock:
+                self._cache[key] = (time.monotonic(), rows)
             return rows[-limit:]
 
     def range(self, symbol: str, since: datetime) -> tuple[float, float]:

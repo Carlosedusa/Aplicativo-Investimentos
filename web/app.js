@@ -269,7 +269,7 @@ function chartCard(symbol, levels, title, interval = "5m") {
       draw();
       const last = candles[candles.length - 1];
       stamp.textContent = `Atualiza a cada ${interval === "1d" ? 10 : 1} s · último preço ${money(last && last.c)} · ${new Date().toLocaleTimeString("pt-BR")}`;
-    } catch (e) { if (!candles.length) msg.replaceChildren(errorBox(e)); else stamp.textContent = "Sem atualização agora; tentando de novo…"; }
+    } catch (e) { if (!candles.length) msg.replaceChildren(errorBox(e)); else stamp.textContent = "Sem atualização agora; tentando de novo… (" + (e.message || e) + ")"; }
     finally { busy = false; }
   };
   setTimeout(() => { started = true; load(); timer = setInterval(load, interval === "1d" ? 10000 : 1000); }, 0);
@@ -427,7 +427,17 @@ function render() {
     tabsEl.append(h("button", { "aria-current": state.tab === id ? "page" : null, onclick: () => go(id) }, label));
   }
   const views = { scanner: scannerView, ativo: assetView, ticket: ticketView, carteira: walletView };
-  view.replaceChildren(views[state.tab]());
+  try { view.replaceChildren(views[state.tab]()); }
+  catch (e) { view.replaceChildren(h("h1", null, "Ops"), errorBox(new Error("Erro na tela: " + (e && e.message ? e.message : e)))); }
 }
+
+// Erro inesperado em qualquer lugar: mostra na tela (em vez de ficar em branco) para dar para diagnosticar.
+function showCrash(msg) {
+  const box = document.getElementById("crash") || h("div", { id: "crash", class: "error", role: "alert", style: "margin:16px" });
+  box.textContent = "Erro inesperado: " + msg + " (tire um print e me envie)";
+  if (!box.isConnected) document.body.prepend(box);
+}
+window.addEventListener("error", (e) => showCrash(e.message));
+window.addEventListener("unhandledrejection", (e) => showCrash(e.reason && e.reason.message ? e.reason.message : String(e.reason)));
 
 render();
