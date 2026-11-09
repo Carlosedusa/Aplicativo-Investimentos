@@ -74,10 +74,11 @@ def setups(bars: list[dict], t: dict, lv: dict, a: float) -> list[str]:
     ph = lv["last_pivot_high"]
     if ph and c[-1] > ph and min(c[-4:-1]) <= ph:       # acabou de furar a resistência
         out.append("breakout_resistance")
-    if last["l"] <= t["sma20"] * 1.01 and c[-1] > t["sma20"] and c[-1] > last["o"]:
+    recent = bars[-3:]   # o toque pode ter sido hoje ou nos 2 pregões anteriores
+    if min(b["l"] for b in recent) <= t["sma20"] * 1.015 and c[-1] > t["sma20"] and c[-1] > last["o"]:
         out.append("pullback_ma20")
     sup = lv["support"]
-    if sup and last["l"] <= sup + 0.5 * a and c[-1] > last["o"] and c[-1] > sup:
+    if sup and min(b["l"] for b in recent) <= sup + 0.5 * a and c[-1] > last["o"] and c[-1] > sup:
         out.append("support_bounce")
     return out
 
@@ -131,8 +132,8 @@ def simulate(bars: list[dict], entry: float, stop: float, target: float, replays
             "breakeven": round(1 / (1 + rr), 4), "replays": replays, "horizon_days": HORIZON}
 
 
-def analyze(symbol: str, bars: list[dict], replays: int = REPLAYS, need_setup: bool = False) -> dict | None:
-    """Análise de um ativo. need_setup=True devolve None se não houver sinal de compra (uso da varredura)."""
+def analyze(symbol: str, bars: list[dict], replays: int = REPLAYS, scan: bool = False) -> dict | None:
+    """Análise de um ativo. scan=True (varredura) pula a simulação dos ativos sem tendência, sem plano ou ilíquidos."""
     if len(bars) < MIN_BARS:
         return None
     c = [b["c"] for b in bars]
@@ -141,15 +142,13 @@ def analyze(symbol: str, bars: list[dict], replays: int = REPLAYS, need_setup: b
     lv = levels(bars, price)
     tags = setups(bars, t, lv, a)
     turnover = sum(b["c"] * b.get("v", 0) for b in bars[-20:]) / 20
-    if need_setup and (not tags or turnover < MIN_TURNOVER):
-        return None
     plan = plan_for(price, a, lv)
-    if need_setup and not plan:
-        return None
     out = {"symbol": symbol, "price": round(price, 2), "setups": tags, "trend": t, "rsi": round(rsi(c) or 0, 1),
            "atr": round(a, 2), "turnover": round(turnover), "plan": plan, "odds": None, "last_bar": bars[-1]["t"],
+           "dist_sma20_pct": round(100 * (price / t["sma20"] - 1), 2),
+           "liquid": turnover >= MIN_TURNOVER,
            "support": lv["support"] and round(lv["support"], 2),
            "resistance": lv["resistances"][0] if lv["resistances"] else None}
-    if plan:
+    if plan and (not scan or (t["up"] and out["liquid"])):
         out["odds"] = simulate(bars, plan["entry"], plan["stop"], plan["target"], replays)
     return out

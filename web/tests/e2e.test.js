@@ -71,7 +71,7 @@ test("risk banner is visible on every screen", async () => {
 
 async function scan(page) {
   await page.getByRole("button", { name: "Varrer o Ibovespa" }).click();
-  await page.getByText("com sinal").waitFor();
+  await page.getByText(/ações analisadas/).waitFor();
   await page.getByText(/Chance de chegar ao alvo: \d+%/).first().waitFor();
 }
 

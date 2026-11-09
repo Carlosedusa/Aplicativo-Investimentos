@@ -120,21 +120,26 @@ function brainSvg() {
 function scannerView() {
   const out = h("div", { class: "stack" });
   const fmt = (x) => String(x).replace(".", ",");
+  const card = (x, withSetup) => {
+    const o = x.odds, good = o.p_target >= o.breakeven;
+    return h("button", { class: "hit", onclick: () => selectSymbol(x.symbol) },
+      h("strong", null, x.symbol), h("span", { class: "num" }, money(x.price)),
+      h("span", { class: "muted" }, withSetup ? x.setups.map((t) => SETUPS[t] || t).join(", ") : `${fmt(Math.abs(x.dist_sma20_pct))}% ${x.dist_sma20_pct >= 0 ? "acima" : "abaixo"} da média de 20`),
+      h("span", { class: "num " + (o.avg_r >= 0 ? "gain" : "loss") }, (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R esperado"),
+      h("span", { class: "full" }, h("span", { class: "chance " + (good ? "gain" : "loss") }, `Chance de chegar ao alvo: ${Math.round(o.p_target * 100)}%`,
+        h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%) · stop −${fmt(x.plan.risk_pct)}% · alvo +${fmt(x.plan.target_pct)}% (${fmt(x.plan.target_r)}R)`))));
+  };
   const show = () => {
     const s = state.scan;
     if (!s) return;
     out.replaceChildren(
-      h("p", { class: "muted" }, `${s.scanned} ações analisadas${s.failed ? " (" + s.failed + " sem dados)" : ""}, ${s.hits.length} com sinal. Ordenadas pelo retorno esperado.`),
-      h("p", { class: "muted small" }, "Só ações em tendência de alta (médias de 20 e 50). Stop abaixo do último pivô de baixa; alvo na próxima resistência. Chance = 2.000 simulações com o último ano do próprio ativo, até 15 pregões. Não é previsão."),
-      ...s.hits.map((x) => {
-        const o = x.odds, good = o.p_target >= o.breakeven;
-        return h("button", { class: "hit", onclick: () => selectSymbol(x.symbol) },
-          h("strong", null, x.symbol), h("span", { class: "num" }, money(x.price)),
-          h("span", { class: "muted" }, x.setups.map((t) => SETUPS[t] || t).join(", ")),
-          h("span", { class: "num " + (o.avg_r >= 0 ? "gain" : "loss") }, (o.avg_r >= 0 ? "+" : "") + fmt(o.avg_r) + "R esperado"),
-          h("span", { class: "full" }, h("span", { class: "chance " + (good ? "gain" : "loss") }, `Chance de chegar ao alvo: ${Math.round(o.p_target * 100)}%`,
-            h("span", { class: "muted small" }, ` (equilíbrio ${Math.round(o.breakeven * 100)}%) · stop −${fmt(x.plan.risk_pct)}% · alvo +${fmt(x.plan.target_pct)}% (${fmt(x.plan.target_r)}R)`))));
-      }));
+      h("p", { class: "muted" }, `${s.scanned} ações analisadas${s.failed ? " (" + s.failed + " sem dados do Yahoo)" : ""}: ${s.uptrend} em tendência de alta, ${s.with_setup} com gatilho de compra hoje, ${s.with_plan} com plano de stop válido.`),
+      s.hits.length ? h("h2", null, "Com gatilho de compra") : h("div", { class: "card" }, h("strong", null, "Nenhum gatilho de compra hoje."),
+        h("p", { class: "muted" }, "É normal: o método só compra a favor da tendência e espera o preço recuar até a média de 20, tocar um suporte ou romper uma resistência. Veja abaixo quem está em tendência de alta e pode chegar lá.")),
+      ...s.hits.map((x) => card(x, true)),
+      s.watch && s.watch.length ? h("h2", null, "Para acompanhar (tendência de alta, sem gatilho ainda)") : null,
+      ...(s.watch || []).map((x) => card(x, false)),
+      h("p", { class: "muted small" }, "Chance = 2.000 simulações com o último ano do próprio ativo, até 15 pregões; stop abaixo do último pivô de baixa, alvo na próxima resistência. Não é previsão."));
   };
   const run = async () => {
     const t0 = Date.now();

@@ -88,3 +88,17 @@ def test_no_setup_without_uptrend():
     down = _bars([100 - i * 0.3 for i in range(120)])
     a = model.analyze("PETR4", down)
     assert a["trend"]["up"] is False and a["setups"] == []
+
+
+def test_scan_reports_funnel_and_watchlist(client):
+    def source(sym):
+        # alta firme e sem recuo: tendência de alta, mas sem pullback/rompimento recente => "acompanhar"
+        return [{"t": 1_700_000_000 + 86400 * i, "o": 10 + i * 0.1, "h": 10.3 + i * 0.1, "l": 9.8 + i * 0.1,
+                 "c": 10.1 + i * 0.1, "v": 5_000_000} for i in range(120)]
+    client.app.state.swing_source = source
+    t = _wait(client, client.post("/swing/scan", headers=AUTH).json()["task_id"])
+    r = t["result"]
+    assert t["status"] == "done" and r["scanned"] > 0 and r["uptrend"] == r["scanned"]
+    assert r["hits"] == [] or all(h["setups"] for h in r["hits"])
+    assert r["watch"] and all(not w["setups"] and w["odds"] for w in r["watch"])
+    assert set(r) >= {"with_setup", "with_plan", "failed"}

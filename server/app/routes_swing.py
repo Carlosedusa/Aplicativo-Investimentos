@@ -1,4 +1,5 @@
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -38,18 +39,27 @@ def build_router(require_token) -> APIRouter:
         source = request.app.state.swing_source
 
         def one(sym):
-            try:
-                return sym, model.analyze(sym, source(sym), need_setup=True), None
-            except Exception as e:  # um ticker que falha não derruba a varredura
-                return sym, None, str(e)
+            for attempt in (0, 1):  # uma nova tentativa: o Yahoo às vezes recusa pedidos em sequência
+                try:
+                    return sym, model.analyze(sym, source(sym), scan=True), None
+                except Exception as e:  # um ticker que falha não derruba a varredura
+                    err = str(e)
+                    if attempt == 0:
+                        time.sleep(1.0)
+            return sym, None, err
 
         def job():
-            with ThreadPoolExecutor(max_workers=8) as pool:
+            with ThreadPoolExecutor(max_workers=6) as pool:
                 rows = list(pool.map(one, IBOV))
-            hits = [h for _, h, _ in rows if h and h["odds"]]
+            ok = [a for _, a, e in rows if a]
+            up = [a for a in ok if a["trend"]["up"] and a["liquid"]]
+            hits = [a for a in up if a["setups"] and a["odds"]]
             hits.sort(key=lambda h: (-h["odds"]["avg_r"], h["symbol"]))
-            return {"scanned": sum(1 for _, h, e in rows if e is None), "failed": sum(1 for *_, e in rows if e),
-                    "hits": hits[:50], "as_of": datetime.now(timezone.utc).isoformat(),
+            watch = [a for a in up if not a["setups"] and a["odds"]]
+            watch.sort(key=lambda a: abs(a["dist_sma20_pct"]))   # mais perto da média de 20 = pullback mais próximo
+            return {"scanned": len(ok), "failed": len(rows) - len(ok), "uptrend": len(up),
+                    "with_setup": sum(1 for a in up if a["setups"]), "with_plan": sum(1 for a in up if a["plan"]),
+                    "hits": hits[:50], "watch": watch[:15], "as_of": datetime.now(timezone.utc).isoformat(),
                     "note": "Lista para estudar, não para comprar. Chance = simulação com o último ano do próprio ativo."}
 
         return {"task_id": request.app.state.tasks.submit(job)}
