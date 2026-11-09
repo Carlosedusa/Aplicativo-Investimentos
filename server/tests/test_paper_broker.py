@@ -1,37 +1,9 @@
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.paper.broker import PaperBroker, PaperError
-
-NY = ZoneInfo("America/New_York")
-
-
-class FakeFeed:
-    def __init__(self, price):
-        self.prices = {"TSLA": price}
-        self.lows = {}
-        self.highs = {}
-
-    def last(self, symbol):
-        return self.prices[symbol]
-
-    def range(self, symbol, since):
-        p = self.prices[symbol]
-        return self.lows.get(symbol, p), self.highs.get(symbol, p)
-
-
-class Clock:
-    def __init__(self, hh=10, mm=15):
-        self.now = datetime(2026, 10, 19, hh, mm, tzinfo=NY).astimezone(timezone.utc)
-
-    def __call__(self):
-        return self.now
-
-    def at(self, hh, mm):
-        self.now = datetime(2026, 10, 19, hh, mm, tzinfo=NY).astimezone(timezone.utc)
-
+from tests.fakes import NY, Clock, FakeFeed
 
 @pytest.fixture
 def env(tmp_path):
@@ -147,3 +119,10 @@ def test_state_survives_restart(tmp_path):
     again = PaperBroker(db, feed, clock, 5000.0)
     assert len(again.positions()) == 1
     assert again.cash() == pytest.approx(5000 - 8 * 364.18)
+
+
+def test_find_by_client_order_id(env):
+    broker, _, _ = env
+    assert broker.find("o1") is None
+    pos = place(broker)
+    assert broker.find("o1") == pos

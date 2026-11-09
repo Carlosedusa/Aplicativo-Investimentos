@@ -8,14 +8,27 @@ TOKEN = "test-token"
 AUTH = {"Authorization": "Bearer " + TOKEN}
 
 
+from tests.fakes import Clock, FakeFeed
+
+
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(api_token=TOKEN, workdir=tmp_path / "work", starting_cash=5000.0)
+    return Settings(api_token=TOKEN, workdir=tmp_path / "work", starting_cash=5000.0, monitor_interval=0)
 
 
 @pytest.fixture
-def client(settings):
-    with TestClient(create_app(settings)) as c:
+def feed():
+    return FakeFeed(364.18)
+
+
+@pytest.fixture
+def clock():
+    return Clock()
+
+
+@pytest.fixture
+def client(settings, feed, clock):
+    with TestClient(create_app(settings, feed=feed, clock=clock)) as c:
         yield c
 
 

@@ -8,6 +8,7 @@ class Settings:
     api_token: str
     workdir: Path
     starting_cash: float = 5000.0
+    monitor_interval: float = 30.0  # segundos; 0 desliga o monitor
 
     @classmethod
     def from_env(cls) -> "Settings":

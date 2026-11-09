@@ -100,6 +100,12 @@ class PaperBroker:
             self._db.commit()
             return Position(cur.lastrowid, symbol, qty, price, stop, target, now)
 
+    def find(self, client_order_id: str) -> Position | None:
+        with self._lock:
+            row = self._db.execute("SELECT %s FROM positions WHERE client_order_id=?" % COLS,
+                                   (client_order_id,)).fetchone()
+        return Position(*row) if row else None
+
     def positions(self) -> list[Position]:
         with self._lock:
             rows = self._db.execute("SELECT %s FROM positions WHERE status='open' ORDER BY id" % COLS).fetchall()

@@ -1,4 +1,6 @@
 import secrets
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -6,13 +8,30 @@ from fastapi.responses import JSONResponse
 from .config import Settings
 from .engine import EngineError, run_tool
 from .routes_analysis import build_router as analysis_router
+from .paper.broker import PaperBroker
+from .paper.monitor import Monitor
+from .paper.prices import YahooPriceFeed
+from .routes_paper import build_router as paper_router
 from .routes_trade import build_router as trade_router
 from .tasks import TaskManager
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, feed=None, clock=None) -> FastAPI:
     settings = settings or Settings.from_env()
-    app = FastAPI(title="Day Trader API")
+    feed = feed or YahooPriceFeed()
+    clock = clock or (lambda: datetime.now(timezone.utc))
+    broker = PaperBroker(settings.workdir / "paper.db", feed, clock, settings.starting_cash)
+    monitor = Monitor(broker, settings.monitor_interval)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        monitor.start()
+        yield
+        monitor.stop()
+
+    app = FastAPI(title="Day Trader API", lifespan=lifespan)
+    app.state.feed, app.state.clock = feed, clock
+    app.state.broker, app.state.monitor = broker, monitor
     app.state.settings = settings
     app.state.tasks = TaskManager()
 
@@ -32,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(analysis_router(require_token))
     app.include_router(trade_router(require_token))
+    app.include_router(paper_router(require_token))
 
     @app.get("/health")
     def health():
