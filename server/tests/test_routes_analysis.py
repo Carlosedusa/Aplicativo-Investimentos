@@ -89,3 +89,10 @@ def test_scan_builds_universe_first_when_missing(client, fake_engine):
 def test_scan_with_explicit_symbols_skips_universe(client, fake_engine):
     wait_task(client, client.post("/scan/daily", json={"symbols": ["TSLA"]}, headers=AUTH).json()["task_id"])
     assert fake_engine.calls == [("scanner", ["daily", "--symbols", "TSLA"])]
+
+
+def test_popular_scan_uses_fixed_symbol_list_and_skips_universe(client, fake_engine):
+    wait_task(client, client.post("/scan/daily", json={"popular": True}, headers=AUTH).json()["task_id"])
+    assert len(fake_engine.calls) == 1
+    tool, args = fake_engine.calls[0]
+    assert args[:2] == ["daily", "--symbols"] and "TSLA" in args[2].split(",") and len(args[2].split(",")) >= 40

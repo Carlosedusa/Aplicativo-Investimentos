@@ -92,20 +92,25 @@ function scannerView() {
         h("strong", null, hit.symbol), h("span", { class: "num" }, money(hit.price)),
         h("span", { class: "muted" }, "rompeu às " + hit.at), h("span", { class: "num gain" }, "+" + String(hit.pct_over).replace(".", ",") + "%"))));
   };
-  const run = async (mode) => {
-    out.replaceChildren(h("p", { class: "spinner" }, "Varrendo o mercado…"));
+  const run = async (mode, popular) => {
+    const t0 = Date.now();
+    const msg = h("p", { class: "spinner" }, "Varrendo o mercado…");
+    out.replaceChildren(msg);
+    const timer = setInterval(() => { msg.textContent = `Varrendo o mercado… ${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
     try {
-      const { task_id } = await api("/scan/" + mode, { method: "POST", body: {} });
+      const { task_id } = await api("/scan/" + mode, { method: "POST", body: { popular } });
       state.scan = await waitTask(task_id);
       show();
     } catch (e) { out.replaceChildren(errorBox(e)); }
+    finally { clearInterval(timer); }
   };
   show();
   return h("section", { class: "stack" },
     h("h1", null, "Scanner"),
     h("p", { class: "muted" }, "Procura gráficos que cumprem uma regra. É uma lista para estudar, não para comprar."),
-    h("button", { onclick: () => run("daily") }, "Pré-mercado"),
-    h("button", { class: "ghost", onclick: () => run("orb") }, "Rompimento da abertura"),
+    h("button", { onclick: () => run("daily", true) }, "Pré-mercado (ações populares, rápido)"),
+    h("button", { class: "ghost", onclick: () => run("orb", true) }, "Rompimento da abertura (populares)"),
+    h("button", { class: "ghost", onclick: () => run("daily", false) }, "Pré-mercado completo (lento, vários minutos)"),
     out);
 }
 

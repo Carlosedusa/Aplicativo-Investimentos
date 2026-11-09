@@ -72,7 +72,7 @@ test("risk banner is visible on every screen", async () => {
 test("scan to paper trade flow", async () => {
   const page = await newPage();
   await login(page);
-  await page.getByRole("button", { name: "Rompimento da abertura" }).click();
+  await page.getByRole("button", { name: "Rompimento da abertura (populares)" }).click();
   await page.getByText("com o padrão").waitFor();
   await shot(page, "1-scanner");
   await page.getByRole("button", { name: /^TSLA/ }).click();
@@ -102,7 +102,7 @@ test("blocked order cannot be confirmed", async () => {
   const page = await newPage();
   await login(page);
   await page.route("**/risk/check", (route) => route.fulfill({ json: { verdict: "BLOCK", reasons: ["perda máxima acima do limite"], warnings: [] } }));
-  await page.getByRole("button", { name: "Rompimento da abertura" }).click();
+  await page.getByRole("button", { name: "Rompimento da abertura (populares)" }).click();
   await page.getByRole("button", { name: /^TSLA/ }).click();
   await page.getByText("Plano de saída").waitFor();
   await page.locator("#tabs").getByRole("button", { name: "Ordem" }).click();

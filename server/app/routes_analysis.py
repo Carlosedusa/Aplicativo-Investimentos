@@ -10,7 +10,13 @@ HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
 RULE = r"^[A-Za-z0-9.:\-]{1,20}$"
 
 
+POPULAR = ("AAPL MSFT NVDA TSLA AMZN GOOGL META AMD NFLX AVGO INTC CRM ORCL ADBE QCOM MU PLTR COIN SHOP UBER "
+           "PYPL SQ SNAP ROKU DIS BA JPM BAC WFC C GS V MA XOM CVX PFE JNJ WMT COST KO PEP NKE F GM RIVN "
+           "NIO SOFI HOOD MARA RIOT SMCI ARM DKNG").split()
+
+
 class ScanBody(BaseModel):
+    popular: bool = False
     symbols: list[str] | None = Field(default=None, max_length=500)
     at: str | None = Field(default=None, pattern=HHMM)
     limit: int | None = Field(default=None, ge=1, le=20000)
@@ -36,6 +42,8 @@ def build_router(require_token) -> APIRouter:
     @r.post("/scan/{mode}")
     def scan(mode: Literal["daily", "orb"], body: ScanBody, request: Request):
         args = [mode]
+        if body.popular:
+            body.symbols = POPULAR
         if body.symbols:
             for s in body.symbols:
                 if not re.match(SYMBOL, s):

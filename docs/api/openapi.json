@@ -552,6 +552,11 @@
       },
       "ScanBody": {
         "properties": {
+          "popular": {
+            "type": "boolean",
+            "title": "Popular",
+            "default": false
+          },
           "symbols": {
             "anyOf": [
               {
