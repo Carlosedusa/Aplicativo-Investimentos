@@ -23,8 +23,17 @@ def normalize_risk(doc: dict) -> dict:
     return {"verdict": "BLOCK" if blocked else "PASS", "reasons": reasons, "warnings": warnings}
 
 
-def run_risk(request: Request) -> dict:
-    return normalize_risk(request.app.state.runner("risk", []))
+def run_risk(request: Request, train: bool = False) -> dict:
+    """Modo treino (só dinheiro de teste): ignora o horário do mercado; todas as outras regras continuam valendo."""
+    args: list[str] = []
+    if train:
+        d = trader_dir(request)
+        cfg_path = d / "config.json"
+        cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+        cfg.update({"no_entries_before": None, "no_entries_after": None})
+        (d / "config_treino.json").write_text(json.dumps(cfg, indent=2))
+        args = ["--config", str(d / "config_treino.json")]
+    return normalize_risk(request.app.state.runner("risk", args))
 
 
 def build_router(require_token) -> APIRouter:
@@ -54,10 +63,23 @@ def build_router(require_token) -> APIRouter:
         }
 
     @r.post("/risk/check")
-    def risk_check(request: Request):
+    def risk_check(request: Request, train: bool = False):
         if not (trader_dir(request) / "orders.json").exists():
             raise HTTPException(409, "Sem ordem para checar: calcule o tamanho da posição primeiro.")
         with request.app.state.trade_lock:
-            return run_risk(request)
+            return run_risk(request, train)
+
+    @r.get("/market/status")
+    def market_status(request: Request):
+        """O mercado aceita entradas agora? (horário de Nova York, feriados da NYSE)"""
+        import importlib.util
+        from .engine import ENGINE_DIR
+        spec = importlib.util.spec_from_file_location("risk_check", ENGINE_DIR / "trader-risk" / "check.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        from zoneinfo import ZoneInfo
+        now = request.app.state.clock().astimezone(ZoneInfo("America/New_York"))
+        reasons, _ = mod.window_check(now, mod.DEFAULTS)
+        return {"open": not reasons, "reasons": reasons, "now_new_york": now.strftime("%Y-%m-%d %H:%M")}
 
     return r

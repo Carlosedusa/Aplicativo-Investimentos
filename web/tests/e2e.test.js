@@ -101,7 +101,7 @@ test("scan to paper trade flow", async () => {
 test("blocked order cannot be confirmed", async () => {
   const page = await newPage();
   await login(page);
-  await page.route("**/risk/check", (route) => route.fulfill({ json: { verdict: "BLOCK", reasons: ["perda máxima acima do limite"], warnings: [] } }));
+  await page.route("**/risk/check*", (route) => route.fulfill({ json: { verdict: "BLOCK", reasons: ["perda máxima acima do limite"], warnings: [] } }));
   await page.getByRole("button", { name: "Rompimento da abertura (populares)" }).click();
   await page.getByRole("button", { name: /^TSLA/ }).click();
   await page.getByText("Plano de saída").waitFor();

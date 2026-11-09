@@ -88,6 +88,22 @@ function rankHits(hits) {
   return [...hits].sort((a, b) => (score(b) ?? -Infinity) - (score(a) ?? -Infinity) || a.symbol.localeCompare(b.symbol));
 }
 
+// Modo treino: ordens de teste ignoram o horário do mercado (as outras regras de Risco continuam).
+const trainOn = () => store.get("train", "1") === "1";
+function trainBox() {
+  const box = h("input", { id: "train", type: "checkbox", style: "width:auto;min-height:0" });
+  box.checked = trainOn();
+  box.addEventListener("change", () => store.set("train", box.checked ? "1" : "0"));
+  const status = h("p", { class: "muted" }, "Verificando o mercado…");
+  api("/market/status").then((m) => {
+    status.textContent = m.open ? "Mercado aberto agora: entradas liberadas."
+      : "Mercado fechado agora em Nova York (abre 10:30 em Brasília, seg. a sex.). Com o Modo treino ligado, você pode simular ordens mesmo assim.";
+  }).catch(() => { status.textContent = ""; });
+  return h("div", { class: "card stack" }, status,
+    h("label", { style: "display:flex;gap:8px;align-items:center;font-size:14px" }, box, "Modo treino: ignorar o horário do mercado"));
+}
+const ptReason = (r) => r.startsWith("window:") ? "Fora do horário de entrada do mercado (Nova York). Ligue o Modo treino para simular." : r;
+
 function brainSvg() {
   const NS = "http://www.w3.org/2000/svg";
   const el = (t, at) => { const e = document.createElementNS(NS, t); for (const [k, v] of Object.entries(at)) e.setAttribute(k, v); return e; };
@@ -133,6 +149,7 @@ function scannerView() {
   return h("section", { class: "stack" },
     h("h1", null, "Scanner"),
     h("p", { class: "muted" }, "Procura gráficos que cumprem uma regra. É uma lista para estudar, não para comprar."),
+    trainBox(),
     h("button", { onclick: () => run("daily", true) }, "Pré-mercado (ações populares, rápido)"),
     h("button", { class: "ghost", onclick: () => run("orb", true) }, "Rompimento da abertura (populares)"),
     h("button", { class: "ghost", onclick: () => run("daily", false) }, "Pré-mercado completo (lento, vários minutos)"),
@@ -230,7 +247,7 @@ function ticketView() {
       sending = true; confirmBtn.disabled = true;
       try {
         await api("/paper/orders", { method: "POST", body: { client_order_id: t.clientOrderId, symbol: t.order.symbol,
-          qty: t.order.qty, stop: t.order.stop, target: t.order.target, confirm: true } });
+          qty: t.order.qty, stop: t.order.stop, target: t.order.target, confirm: true, train: trainOn() } });
         state.toast = "Ordem de teste enviada."; state.ticket = null; state.wallet = null;
         go("carteira");
       } catch (e) {
@@ -246,7 +263,7 @@ function ticketView() {
         h("div", { class: "row" }, h("span", { class: "muted" }, "Alvo"), h("span", { class: "num gain" }, money(t.order.target))),
         h("div", { class: "row" }, h("span", { class: "muted" }, "Perda máxima no stop"), h("span", { class: "num" }, money(t.order.max_loss)))),
       ok ? h("div", { class: "ok" }, h("strong", null, "Aprovado pelo Risco"), ...t.risk.warnings.map((w) => h("p", { class: "muted" }, w)))
-         : h("div", { class: "error", role: "alert" }, h("strong", null, "Bloqueado pelo Risco"), ...t.risk.reasons.map((r) => h("p", null, r))),
+         : h("div", { class: "error", role: "alert" }, h("strong", null, "Bloqueado pelo Risco"), ...t.risk.reasons.map((r) => h("p", null, ptReason(r)))),
       confirmBtn);
   };
   const calc = async () => {
@@ -254,7 +271,7 @@ function ticketView() {
     out.replaceChildren(h("p", { class: "spinner" }, "Calculando…"));
     try {
       const order = await api("/budget/size", { method: "POST", body: { budget: Number(budget.value), max_loss: Number(maxLoss.value) } });
-      const risk = await api("/risk/check", { method: "POST" });
+      const risk = await api("/risk/check?train=" + trainOn(), { method: "POST" });
       state.ticket = { order, risk, clientOrderId: uid() };
       draw();
     } catch (e) { out.replaceChildren(errorBox(e)); }

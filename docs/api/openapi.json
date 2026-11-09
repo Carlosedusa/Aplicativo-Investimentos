@@ -271,6 +271,45 @@
       "post": {
         "summary": "Risk Check",
         "operationId": "risk_check_risk_check_post",
+        "parameters": [
+          {
+            "name": "train",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Train"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/market/status": {
+      "get": {
+        "summary": "Market Status",
+        "description": "O mercado aceita entradas agora? (horário de Nova York, feriados da NYSE)",
+        "operationId": "market_status_market_status_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -537,6 +576,11 @@
           "confirm": {
             "type": "boolean",
             "title": "Confirm",
+            "default": false
+          },
+          "train": {
+            "type": "boolean",
+            "title": "Train",
             "default": false
           }
         },

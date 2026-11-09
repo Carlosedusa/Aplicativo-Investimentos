@@ -16,6 +16,7 @@ class OrderBody(BaseModel):
     stop: float = Field(gt=0)
     target: float = Field(gt=0)
     confirm: bool = False
+    train: bool = False
 
 
 def _last(feed, symbol):
@@ -60,7 +61,7 @@ def build_router(require_token) -> APIRouter:
         # Um pedido por vez: os arquivos de entrada do Risco são compartilhados.
         with request.app.state.trade_lock:
             write_risk_inputs(request, body, price, now_iso)
-            verdict = run_risk(request)
+            verdict = run_risk(request, body.train)
             if verdict["verdict"] == "BLOCK":
                 return JSONResponse({"detail": "Bloqueado pelo Risco: " + "; ".join(verdict["reasons"]),
                                      "reasons": verdict["reasons"]}, status_code=409)
