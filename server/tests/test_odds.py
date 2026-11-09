@@ -28,3 +28,11 @@ def test_real_odds_computes_with_fetched_chart(monkeypatch):
     r = odds.compute_many(odds.real_odds, [{"symbol": "TST", "price": 100, "or_high": 99.9, "or_low": 99.0, "bar_index": 3}])
     o = r["odds"]["TST"]
     assert "error" not in o and 0 < o["p_target"] < 1 and o["basis"] == "faixa inicial"
+
+
+def test_engine_loads_once_under_concurrency():
+    from concurrent.futures import ThreadPoolExecutor
+    odds._tm = None
+    with ThreadPoolExecutor(8) as pool:
+        mods = list(pool.map(lambda _: odds._engine(), range(16)))
+    assert all(hasattr(m, "fetch_chart") and m is mods[0] for m in mods)

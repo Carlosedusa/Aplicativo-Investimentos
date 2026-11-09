@@ -1,5 +1,6 @@
 """Chance de o preço chegar ao alvo antes do stop, usando o motor da Máquina do Tempo (versão rápida)."""
 import importlib.util
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -12,12 +13,18 @@ DAILY_RISK = 0.01   # pré-mercado não tem faixa de abertura: stop padrão 1% a
 _tm = None
 
 
+_load_lock = threading.Lock()
+
+
 def _engine():
+    """Carrega o motor uma única vez; o lock evita que outra thread use o módulo ainda pela metade."""
     global _tm
-    if _tm is None:
-        spec = importlib.util.spec_from_file_location("tm_engine", ENGINE_DIR / "trader-timemachine" / "timemachine.py")
-        _tm = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(_tm)
+    with _load_lock:
+        if _tm is None:
+            spec = importlib.util.spec_from_file_location("tm_engine", ENGINE_DIR / "trader-timemachine" / "timemachine.py")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _tm = mod  # só publica depois de carregado por completo
     return _tm
 
 
